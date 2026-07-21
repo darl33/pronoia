@@ -1,0 +1,25 @@
+
+docs/HANDOFF_PROMPTS.md
+docs/LEARNING_PLAN.md
+
+# --- env ---
+.env
+
+# --- Python (pipeline/) ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Rust (api/) ---
+/api/target/
+**/*.rs.bk
+
+# --- Node (web/) ---
+web/node_modules/
+web/dist/
+web/.vite/
+npm-debug.log*
