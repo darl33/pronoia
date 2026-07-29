@@ -8,6 +8,7 @@ dependencies = [
     "beautifulsoup4>=4.15.0",
     "defusedxml>=0.7.1",
     "httpx>=0.28.1",
+    "pgvector>=0.4.1",
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
@@ -15,11 +16,23 @@ dependencies = [
     "uuid6>=2025.0.1",
 ]
 
+# `pronoia doctor` (DESIGN.md §5.4). The batch entrypoints stay `python -m`.
+[project.scripts]
+pronoia = "pronoia:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
     "pytest-mock>=3.15.1",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Flat layout: these are top-level modules, not a src/ package.
+[tool.hatch.build.targets.wheel]
+only-include = ["enrich", "ingest", "refdata", "scripts", "pronoia.py"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

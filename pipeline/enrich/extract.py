@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
-from enrich.client import EnrichmentClient, EnrichmentError
+from enrich.client import DEFAULT_MAX_TOKENS, CompletionClient, EnrichmentError
 from enrich.contract import Extraction
 
 MAX_ATTEMPTS = 2
@@ -51,6 +51,12 @@ class Attempt:
     raw_response: str | None
     error: str | None = None
     extraction: Extraction | None = None
+    # Carried from CompletionResult (DESIGN.md §5.3) for cost tracking and
+    # truncation detection. Recorded and logged, never branched on: the
+    # guardrail decides on the parse result alone, whatever the provider says.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    stop_reason: str | None = None
 
 
 @dataclass
@@ -95,10 +101,11 @@ def _retry_prompt(user_prompt: str, status: str, error: str) -> str:
 
 
 def run_extraction(
-    client: EnrichmentClient,
+    client: CompletionClient,
     system_prompt: str,
     user_prompt: str,
     max_attempts: int = MAX_ATTEMPTS,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> ExtractionOutcome:
     outcome = ExtractionOutcome()
     prompt = user_prompt
@@ -107,7 +114,7 @@ def run_extraction(
         started_at = datetime.now(timezone.utc)
 
         try:
-            raw_response = client.complete(system_prompt, prompt)
+            completion = client.complete(system_prompt, prompt, max_tokens=max_tokens)
         except EnrichmentError as exc:
             outcome.attempts.append(
                 Attempt(
@@ -121,16 +128,19 @@ def run_extraction(
             )
             return outcome
 
-        extraction, status, error = parse_extraction(raw_response)
+        extraction, status, error = parse_extraction(completion.text)
         outcome.attempts.append(
             Attempt(
                 attempt=attempt_number,
                 status=status,
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
-                raw_response=raw_response,
+                raw_response=completion.text,
                 error=error,
                 extraction=extraction,
+                input_tokens=completion.input_tokens,
+                output_tokens=completion.output_tokens,
+                stop_reason=completion.stop_reason,
             )
         )
 

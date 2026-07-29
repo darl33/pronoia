@@ -1,7 +1,8 @@
 """SQLAlchemy Core table definitions for the enrichment layer, mirroring
-db/migrations/20260725000001_enrichment_layer.sql exactly, plus bound-parameter-
-only helpers (DESIGN.md §6: "SQLAlchemy bound parameters (Python); no
-string-built SQL anywhere").
+db/migrations/20260725000001_enrichment_layer.sql and
+db/migrations/20260726000001_embedding_provenance.sql exactly, plus
+bound-parameter-only helpers (DESIGN.md §6: "SQLAlchemy bound parameters
+(Python); no string-built SQL anywhere").
 
 Shares ingest.db's MetaData so raw_document is resolvable for the foreign keys
 and joins here; the schema itself is still owned by db/migrations.
@@ -20,12 +21,15 @@ from sqlalchemy import (
     Integer,
     Table,
     Text,
+    func,
     select,
 )
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from uuid6 import uuid7
 
+from enrich.config import REPORT_EMBEDDING_DIM
 from ingest.db import metadata, raw_document
 
 threat_actor = Table(
@@ -60,10 +64,9 @@ enrichment_run = Table(
     Column("attempt", Integer, nullable=False),
 )
 
-# `embedding VECTOR(1024)` is intentionally absent: pgvector's type has no
-# SQLAlchemy Core mapping here and nothing in this milestone writes it. The
-# column exists in the migration; leaving it out of the Table just means this
-# module can't touch it.
+# REPORT_EMBEDDING_DIM must equal the VECTOR(n) in the migration -- see the
+# README section "Changing the embedding model" for why that number is fixed at
+# first migration rather than being configurable.
 report = Table(
     "report",
     metadata,
@@ -73,6 +76,9 @@ report = Table(
     Column("summary", Text, nullable=False),
     Column("report_date", Date),
     Column("confidence", Text, nullable=False),
+    Column("embedding", Vector(REPORT_EMBEDDING_DIM)),
+    Column("embedding_model", Text),
+    Column("embedding_dim", Integer),
 )
 
 report_actor = Table(
@@ -212,7 +218,17 @@ def insert_enrichment_run(
     return run_id
 
 
-def insert_report(conn, *, document_id, enrichment_run_id, summary, report_date, confidence):
+def insert_report(
+    conn, *, document_id, enrichment_run_id, summary, report_date, confidence,
+    embedding=None, embedding_model=None, embedding_dim=None,
+):
+    """Write one validated extraction.
+
+    embedding/embedding_model/embedding_dim travel together: the migration's
+    CHECK constraint rejects a vector without its provenance, so a caller that
+    produced an embedding must pass all three (DESIGN.md §5.3). All three NULL
+    is the ordinary degraded case (§5.4) and is allowed.
+    """
     report_id = uuid7()
     conn.execute(
         report.insert().values(
@@ -222,9 +238,63 @@ def insert_report(conn, *, document_id, enrichment_run_id, summary, report_date,
             summary=summary,
             report_date=report_date,
             confidence=confidence,
+            embedding=embedding,
+            embedding_model=embedding_model,
+            embedding_dim=embedding_dim,
         )
     )
     return report_id
+
+
+def list_reports_needing_embedding(conn, *, embedding_model: str, limit: int | None = None):
+    """Reports not yet embedded by `embedding_model`.
+
+    Drives pipeline/scripts/reembed.py, and is what makes it resumable: rows
+    move out of this result set only once their new vector is committed, so a
+    re-run after an interruption picks up exactly where it stopped. `IS
+    DISTINCT FROM` rather than `!=` because a NULL embedding_model (never
+    embedded) must match too.
+    """
+    stmt = (
+        select(report.c.id, report.c.summary)
+        .where(report.c.embedding_model.is_distinct_from(embedding_model))
+        .order_by(report.c.id)
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return conn.execute(stmt).mappings().all()
+
+
+def count_reports(conn) -> int:
+    return conn.execute(select(func.count()).select_from(report)).scalar_one()
+
+
+def embedding_model_counts(conn):
+    """(embedding_model, count) over reports, for `doctor` and the README's
+    post-re-embed verification query. Includes the NULL group."""
+    return conn.execute(
+        select(report.c.embedding_model, func.count())
+        .group_by(report.c.embedding_model)
+        .order_by(func.count().desc())
+    ).all()
+
+
+def update_report_embedding(conn, *, report_id, embedding, embedding_model, embedding_dim) -> None:
+    """Replace a report's vector and both provenance columns as one statement.
+
+    One UPDATE, not three: a vector that outlives its own provenance is exactly
+    the mixed-vintage state §5.3 wants to be detectable, and the migration's
+    CHECK constraint would reject the intermediate anyway.
+    """
+    conn.execute(
+        report.update()
+        .where(report.c.id == report_id)
+        .values(
+            embedding=embedding,
+            embedding_model=embedding_model,
+            embedding_dim=embedding_dim,
+        )
+    )
 
 
 def insert_report_actor(conn, *, report_id, actor_id, attribution_confidence) -> None:

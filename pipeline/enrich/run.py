@@ -18,7 +18,12 @@ import logging
 from dotenv import load_dotenv
 
 from enrich.actors import ActorIndex
-from enrich.client import get_client
+from enrich.client import (
+    TRUNCATION_STOP_REASONS,
+    build_completion_client,
+    get_embedding_client,
+)
+from enrich.config import REPORT_EMBEDDING_DIM, ConfigError, resolve_completion
 from enrich.db import (
     enqueue_actor_for_review,
     insert_enrichment_run,
@@ -65,8 +70,46 @@ def _record_attempts(engine, document_id, model, version, outcome):
     return ok_run_id
 
 
-def _persist(engine, *, document_id, run_id, validated):
+def _embed_summary(embedder, summary: str):
+    """Return (embedding, model, dim), or three Nones.
+
+    Embeddings are optional and must never block a run (DESIGN.md §5.4): every
+    failure here degrades to a NULL `report.embedding` and the document is
+    still enriched, its actors, techniques, targets and IOCs all written.
+    Semantic search is the only thing that suffers, and it is already the top
+    cut line (§10).
+
+    What gets embedded is the model's own summary, not `clean_text`. The
+    summary is 2-3 sentences, so it fits any embedding context window and needs
+    no chunking; embedding full report text would require the chunk-and-merge
+    path §5.3 defers to the second backend.
+    """
+    if embedder is None:
+        return None, None, None
+
+    try:
+        vector = embedder.embed([summary])[0]
+    except Exception:
+        log.warning("embedding failed; leaving report.embedding NULL", exc_info=True)
+        return None, None, None
+
+    if len(vector) != REPORT_EMBEDDING_DIM:
+        log.warning(
+            "embedding model %s returned %d dimensions but report.embedding is "
+            "VECTOR(%d); leaving it NULL",
+            embedder.model,
+            len(vector),
+            REPORT_EMBEDDING_DIM,
+        )
+        return None, None, None
+
+    return vector, embedder.model, len(vector)
+
+
+def _persist(engine, *, document_id, run_id, validated, embedder):
     extraction = validated.extraction
+    embedding, embedding_model, embedding_dim = _embed_summary(embedder, extraction.summary)
+
     with engine.begin() as conn:
         report_id = insert_report(
             conn,
@@ -75,6 +118,9 @@ def _persist(engine, *, document_id, run_id, validated):
             summary=extraction.summary,
             report_date=extraction.report_date,
             confidence=extraction.confidence,
+            embedding=embedding,
+            embedding_model=embedding_model,
+            embedding_dim=embedding_dim,
         )
 
         for actor in validated.actors:
@@ -121,7 +167,9 @@ def _persist(engine, *, document_id, run_id, validated):
     return report_id
 
 
-def enrich_document(engine, client, row, *, technique_index, actor_index, version) -> bool:
+def enrich_document(
+    engine, client, row, *, technique_index, actor_index, version, embedder=None
+) -> bool:
     document_id = row["id"]
     title = row["title"] or str(document_id)
 
@@ -129,6 +177,12 @@ def enrich_document(engine, client, row, *, technique_index, actor_index, versio
         client, system_prompt(), render_user_prompt(row["clean_text"])
     )
     run_id = _record_attempts(engine, document_id, client.model, version, outcome)
+
+    if outcome.final.stop_reason in TRUNCATION_STOP_REASONS:
+        # Not a guardrail branch -- a truncated response fails the JSON parse
+        # like any other malformed output. It just has a different fix
+        # (raise max_tokens) and is worth naming in the log.
+        log.warning("response for %r was truncated (stop_reason=%s)", title, outcome.final.stop_reason)
 
     if not outcome.succeeded:
         log.warning(
@@ -150,7 +204,13 @@ def enrich_document(engine, client, row, *, technique_index, actor_index, versio
     for drop in validated.drops:
         log.info("dropped [%s] %s -- %s", drop.guardrail, drop.value, drop.reason)
 
-    _persist(engine, document_id=document_id, run_id=run_id, validated=validated)
+    _persist(
+        engine,
+        document_id=document_id,
+        run_id=run_id,
+        validated=validated,
+        embedder=embedder,
+    )
     log.info(
         "enriched %r: %d actor(s), %d technique(s), %d target(s), %d ioc(s), "
         "%d review-queue, %d drop(s)",
@@ -165,6 +225,44 @@ def enrich_document(engine, client, row, *, technique_index, actor_index, versio
     return True
 
 
+def _resolve_embedder(completion_config):
+    """Resolve slot 2 and check its width once, at startup.
+
+    Checking the dimension here rather than per-document is the §5.4 "fail at
+    config time, not mid-run" rule applied to the one thing that *can* be
+    checked cheaply: one probe call tells us whether the vectors will fit
+    VECTOR(1024), and a provider that can't is dropped now instead of logging a
+    warning once per document for the whole batch.
+    """
+    embedder = get_embedding_client(completion_config)
+    if embedder is None:
+        log.info("no embedding provider resolved; reports will have a NULL embedding (§5.4)")
+        return None
+
+    try:
+        dimension = embedder.dimension
+    except Exception:
+        log.warning(
+            "embedding provider %s did not answer; continuing without embeddings",
+            embedder.model,
+            exc_info=True,
+        )
+        return None
+
+    if dimension != REPORT_EMBEDDING_DIM:
+        log.warning(
+            "embedding model %s produces %d dimensions but report.embedding is "
+            "VECTOR(%d); continuing without embeddings. See the README section "
+            "'Changing the embedding model'.",
+            embedder.model,
+            dimension,
+            REPORT_EMBEDDING_DIM,
+        )
+        return None
+
+    return embedder
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run LLM enrichment over un-enriched documents.")
     parser.add_argument("--limit", type=int, default=None, help="max documents to process")
@@ -172,7 +270,17 @@ def main() -> None:
 
     load_dotenv()
     engine = get_engine()
-    client = get_client()
+
+    try:
+        completion_config = resolve_completion()
+    except ConfigError as exc:
+        # The message names the variable that fixes it (§5.4). Raising it as a
+        # SystemExit rather than a traceback keeps that message the last thing
+        # the reader sees.
+        raise SystemExit(f"LLM config: {exc}\n\nRun `pronoia doctor` for the full picture.") from exc
+
+    client = build_completion_client(completion_config)
+    embedder = _resolve_embedder(completion_config)
     version = prompt_version()
 
     with engine.begin() as conn:
@@ -187,8 +295,11 @@ def main() -> None:
         )
 
     log.info(
-        "model=%s prompt_version=%s techniques=%d actor_names=%d documents=%d",
+        "provider=%s model=%s embedding=%s prompt_version=%s techniques=%d "
+        "actor_names=%d documents=%d",
+        completion_config.provider,
         client.model,
+        embedder.model if embedder else "disabled",
         version,
         len(technique_index),
         len(actor_index),
@@ -205,6 +316,7 @@ def main() -> None:
                 technique_index=technique_index,
                 actor_index=actor_index,
                 version=version,
+                embedder=embedder,
             ):
                 enriched += 1
         except Exception:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 
+from enrich.client import CompletionResult
 from enrich.extract import parse_extraction, run_extraction, strip_code_fences
 
 VALID_PAYLOAD = {
@@ -34,9 +35,14 @@ class ScriptedClient:
         self._responses = list(responses)
         self.prompts: list[str] = []
 
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str, *, max_tokens: int = 16000) -> CompletionResult:
         self.prompts.append(user)
-        return self._responses.pop(0)
+        return CompletionResult(
+            text=self._responses.pop(0),
+            input_tokens=None,
+            output_tokens=None,
+            stop_reason="end_turn",
+        )
 
 
 # ---- fence stripping ----
@@ -155,7 +161,7 @@ def test_api_error_is_recorded_and_not_retried():
     class FailingClient:
         model = "failing-test-model"
 
-        def complete(self, system, user):
+        def complete(self, system, user, *, max_tokens=16000):
             from enrich.client import EnrichmentError
 
             raise EnrichmentError("boom")
