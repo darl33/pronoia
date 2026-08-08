@@ -19,13 +19,23 @@ DEFAULT_MIN_DOMAIN_DELAY_SECONDS = 2.0
 DEFAULT_TIMEOUT_SECONDS = 15.0
 
 # Plain "name/version" identifier, deliberately with no "(+https://...)"
-# bot-announcement suffix: verified empirically against the real feeds this
-# pipeline polls that the two behave oppositely under Akamai bot management.
-# CISA's edge 403s a bare descriptive UA but allows the "(+url)" convention;
-# ACSC's edge resets the connection (HTTP/2 INTERNAL_ERROR) for *any*
-# "(+url)"-style UA -- including a genuine Googlebot string -- but allows a
-# bare one. This plain form is the one that passes both.
+# bot-announcement suffix: ACSC's edge resets the connection (HTTP/2
+# INTERNAL_ERROR) for *any* "(+url)"-style UA -- including a genuine Googlebot
+# string -- but serves a bare one. Verified empirically against the real feeds
+# this pipeline polls.
 _USER_AGENT = "Pronoia-Ingest/0.1"
+
+# Set explicitly to override httpx's default of "gzip, deflate". CISA's edge
+# 403s any request advertising `deflate`, which is the one bot-management
+# behaviour here that is not about the User-Agent at all -- verified by
+# isolating each header: the same bare UA gets 403 with "gzip, deflate" and
+# 200 with "gzip", on CISA, ACSC, Talos and raw.githubusercontent alike.
+#
+# Narrowing to gzip also slightly shrinks the §6 decompression-bomb surface:
+# one decoder to reason about instead of three. The byte cap in
+# _do_one_request is applied to the *decoded* stream either way, so it is the
+# control regardless of which encoding a server picks.
+_ACCEPT_ENCODING = "gzip"
 
 _last_request_at: dict[str, float] = {}
 
@@ -81,7 +91,7 @@ def _do_one_request(
     hostname, port = validate_url_scheme(url)
     validated = resolve_and_validate(hostname, port)
 
-    headers = {"User-Agent": _USER_AGENT}
+    headers = {"User-Agent": _USER_AGENT, "Accept-Encoding": _ACCEPT_ENCODING}
     if etag:
         headers["If-None-Match"] = etag
     if last_modified:
