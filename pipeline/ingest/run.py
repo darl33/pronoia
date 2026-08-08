@@ -12,11 +12,13 @@ import logging
 
 from dotenv import load_dotenv
 
+from ingest.article import enrich_document
 from ingest.dedup import content_hash
 from ingest.db import (
     get_engine,
     insert_raw_document,
     list_due_feeds,
+    raw_document_exists,
     update_feed_poll_state,
     upsert_feed_seed,
 )
@@ -47,6 +49,7 @@ def seed_feeds() -> None:
                 url=seed.url,
                 kind=seed.kind,
                 poll_interval_minutes=seed.poll_interval_minutes,
+                fetch_articles=seed.fetch_articles,
             )
 
 
@@ -84,8 +87,21 @@ def poll_feed(conn, row) -> tuple[int, int]:
         docs = []
 
     stored = deduped = 0
+    fetched_bodies = 0
     for doc in docs:
+        # Hash the feed entry, before any article body replaces it. Hashing the
+        # fetched page instead would tie identity to the publisher's template,
+        # so a rotating banner or build-id comment would produce a new
+        # raw_document every poll.
         h = content_hash(doc.raw_html or doc.clean_text or "")
+
+        # Skip the fetch for entries we already have -- the insert would dedup
+        # them anyway, but only after re-requesting every article, every poll.
+        already_stored = raw_document_exists(conn, feed_id=row["id"], content_hash=h)
+
+        if row["fetch_articles"] and not already_stored and enrich_document(doc, row["url"]):
+            fetched_bodies += 1
+
         inserted = insert_raw_document(
             conn,
             feed_id=row["id"],
@@ -108,7 +124,10 @@ def poll_feed(conn, row) -> tuple[int, int]:
         last_modified=result.last_modified or row["last_modified"],
         polled_at=_now(),
     )
-    log.info("feed %r: %d stored, %d deduped (of %d parsed)", row["name"], stored, deduped, len(docs))
+    log.info(
+        "feed %r: %d stored, %d deduped (of %d parsed), %d article body/bodies fetched",
+        row["name"], stored, deduped, len(docs), fetched_bodies,
+    )
     return stored, deduped
 
 

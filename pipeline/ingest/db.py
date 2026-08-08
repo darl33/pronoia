@@ -43,6 +43,7 @@ feed = Table(
     Column("last_modified", Text),
     Column("last_polled_at", DateTime(timezone=True)),
     Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("fetch_articles", Boolean, nullable=False, server_default="false"),
 )
 
 raw_document = Table(
@@ -65,7 +66,10 @@ def get_engine() -> Engine:
     return create_engine(url, future=True)
 
 
-def upsert_feed_seed(conn, *, name: str, url: str, kind: str, poll_interval_minutes: int) -> None:
+def upsert_feed_seed(
+    conn, *, name: str, url: str, kind: str, poll_interval_minutes: int,
+    fetch_articles: bool = False,
+) -> None:
     """Idempotently register a feed definition. Existing poll state
     (etag/last_modified/last_polled_at) is left untouched."""
     stmt = pg_insert(feed).values(
@@ -74,10 +78,15 @@ def upsert_feed_seed(conn, *, name: str, url: str, kind: str, poll_interval_minu
         url=url,
         kind=kind,
         poll_interval_minutes=poll_interval_minutes,
+        fetch_articles=fetch_articles,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=[feed.c.url],
-        set_={"name": stmt.excluded.name, "kind": stmt.excluded.kind},
+        set_={
+            "name": stmt.excluded.name,
+            "kind": stmt.excluded.kind,
+            "fetch_articles": stmt.excluded.fetch_articles,
+        },
     )
     conn.execute(stmt)
 
@@ -96,6 +105,21 @@ def list_due_feeds(conn):
         if elapsed_minutes >= row["poll_interval_minutes"]:
             due.append(row)
     return due
+
+
+def raw_document_exists(conn, *, feed_id, content_hash: bytes) -> bool:
+    """Has this feed entry already been stored?
+
+    Lets the caller skip fetching an article body it is about to discard as a
+    dedup hit -- otherwise every poll re-requests every article forever. ON
+    CONFLICT is still the real guarantee; this only avoids the wasted request.
+    """
+    return conn.execute(
+        select(raw_document.c.id)
+        .where(raw_document.c.feed_id == feed_id)
+        .where(raw_document.c.content_hash == content_hash)
+        .limit(1)
+    ).first() is not None
 
 
 def insert_raw_document(
