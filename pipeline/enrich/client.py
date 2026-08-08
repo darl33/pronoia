@@ -1,28 +1,19 @@
 """Provider abstraction (DESIGN.md §5.3): two slots, not one.
 
-**Slot 1, completions.** `CompletionClient.complete(system, user, *, max_tokens)
--> CompletionResult`. Two implementations and deliberately no more:
+Slot 1 is `CompletionClient`, with two implementations and deliberately no
+more: `AnthropicClient` (the §7 eval baseline) and `OpenAICompatibleClient`,
+one adapter reaching Ollama, vLLM, LM Studio, OpenRouter, Groq and most local
+runtimes. N vendor clients would buy almost nothing on top of it.
 
-  * `AnthropicClient` -- the primary, what the §7 eval baseline is tuned against.
-  * `OpenAICompatibleClient` -- one adapter for any OpenAI-compatible
-    `/v1/chat/completions` endpoint. That single adapter reaches Ollama, vLLM,
-    LM Studio, OpenRouter, Groq, Together and most local runtimes; writing N
-    vendor-specific clients would buy almost nothing on top of it.
+Slot 2 is `EmbeddingClient`, separate because Anthropic has no embeddings API,
+so the two providers are always different services here.
 
-**Slot 2, embeddings.** `EmbeddingClient.embed(texts) -> list[Vector]` with a
-`dimension` property. Separate from slot 1 because Anthropic has no embeddings
-API, so the completions provider and the embeddings provider are *always*
-different services here. The previous single-client design hid that.
+`complete` returns a result object, not a bare str, so token usage and stop
+reason survive. It still doesn't parse, validate or retry -- that is guardrail
+1's job (extract.py), and keeping it out of here is what makes the guardrail
+portable across providers.
 
-`complete` returns a `CompletionResult` rather than a bare `str` because a
-string discards the signals the caller needs: token usage for cost tracking and
-stop reason for truncation detection. It still does not parse, validate, or
-retry -- structured-output enforcement is guardrail 1's job (enrich/extract.py),
-and keeping it out of here is what makes the guardrail portable across
-providers instead of dependent on one provider's JSON mode.
-
-Context-window chunking and MAX_INPUT_TOKENS (§5.3) are deliberately not here
-yet; they land with the second backend.
+Chunking and MAX_INPUT_TOKENS (§5.3) land with the second backend.
 """
 
 from __future__ import annotations
@@ -132,12 +123,11 @@ class AnthropicClient:
         )
 
     def ping(self) -> str:
-        """One cheap round-trip for `pronoia doctor` (§5.4).
+        """Cheap round-trip for `pronoia doctor` (§5.4).
 
-        count_tokens, not a 1-token completion: it validates the key, the model
-        id and network reachability the same way, and costs nothing. Checking
-        an LLM config by spending money on it is a bad habit to build into a
-        command whose whole purpose is being run casually.
+        count_tokens, not a 1-token completion: same validation of key, model
+        id and reachability, but free. A diagnostic that costs money is one
+        people stop running.
         """
         import anthropic
 
@@ -170,9 +160,8 @@ class OpenAICompatibleClient:
     def complete(
         self, system: str, user: str, *, max_tokens: int = DEFAULT_MAX_TOKENS
     ) -> CompletionResult:
-        # `max_tokens` rather than the newer `max_completion_tokens`: the older
-        # spelling is the one every local runtime in §5.3 accepts, and reaching
-        # those runtimes is the entire reason this adapter exists.
+        # `max_tokens`, not `max_completion_tokens`: the older spelling is what
+        # every local runtime accepts, and reaching those is why this exists.
         payload = {
             "model": self.model,
             "max_tokens": max_tokens,
@@ -261,13 +250,9 @@ class OpenAICompatibleEmbeddingClient:
     def dimension(self) -> int:
         """Width of the vectors this endpoint actually returns.
 
-        Measured once from a real call rather than looked up in a table of
-        model names. The same model name is served at different widths in
-        practice (OpenAI's text-embedding-3-* honour a `dimensions` parameter,
-        local GGUF builds vary), and writing a guessed number into
-        report.embedding_dim would defeat the entire point of recording
-        provenance. One extra round-trip at startup buys a column you can
-        trust.
+        Measured once, not looked up by model name: the same name is served at
+        different widths in practice, and a guessed embedding_dim would defeat
+        the point of recording provenance.
         """
         if self._dimension is None:
             self._dimension = len(self.embed(["dimension probe"])[0])
@@ -293,9 +278,8 @@ class OpenAICompatibleEmbeddingClient:
             raise EnrichmentError(f"{self._base_url}/embeddings returned non-JSON: {exc}") from exc
 
         try:
-            # Sorted by index: the spec allows the provider to return items out
-            # of order, and a silently permuted batch would attach every vector
-            # to the wrong report.
+            # Sort by index -- providers may return out of order, and a
+            # permuted batch attaches every vector to the wrong report.
             items = sorted(body["data"], key=lambda item: item["index"])
             return [list(item["embedding"]) for item in items]
         except (KeyError, IndexError, TypeError) as exc:

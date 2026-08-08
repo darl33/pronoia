@@ -73,16 +73,9 @@ def _record_attempts(engine, document_id, model, version, outcome):
 def _embed_summary(embedder, summary: str):
     """Return (embedding, model, dim), or three Nones.
 
-    Embeddings are optional and must never block a run (DESIGN.md §5.4): every
-    failure here degrades to a NULL `report.embedding` and the document is
-    still enriched, its actors, techniques, targets and IOCs all written.
-    Semantic search is the only thing that suffers, and it is already the top
-    cut line (§10).
-
-    What gets embedded is the model's own summary, not `clean_text`. The
-    summary is 2-3 sentences, so it fits any embedding context window and needs
-    no chunking; embedding full report text would require the chunk-and-merge
-    path §5.3 defers to the second backend.
+    Never blocks a run (§5.4): any failure leaves report.embedding NULL and the
+    document is still fully enriched. Embeds the summary, not clean_text --
+    2-3 sentences fit any context window, so no chunking (§5.3, deferred).
     """
     if embedder is None:
         return None, None, None
@@ -228,11 +221,8 @@ def enrich_document(
 def _resolve_embedder(completion_config):
     """Resolve slot 2 and check its width once, at startup.
 
-    Checking the dimension here rather than per-document is the §5.4 "fail at
-    config time, not mid-run" rule applied to the one thing that *can* be
-    checked cheaply: one probe call tells us whether the vectors will fit
-    VECTOR(1024), and a provider that can't is dropped now instead of logging a
-    warning once per document for the whole batch.
+    §5.4 "fail at config time, not mid-run": one probe drops a mismatched
+    provider now, rather than warning once per document for the whole batch.
     """
     embedder = get_embedding_client(completion_config)
     if embedder is None:

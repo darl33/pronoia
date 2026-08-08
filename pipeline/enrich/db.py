@@ -224,10 +224,9 @@ def insert_report(
 ):
     """Write one validated extraction.
 
-    embedding/embedding_model/embedding_dim travel together: the migration's
-    CHECK constraint rejects a vector without its provenance, so a caller that
-    produced an embedding must pass all three (DESIGN.md §5.3). All three NULL
-    is the ordinary degraded case (§5.4) and is allowed.
+    The three embedding columns travel together -- the migration's CHECK
+    rejects a vector without provenance. All three NULL is the normal degraded
+    case (§5.4).
     """
     report_id = uuid7()
     conn.execute(
@@ -249,11 +248,8 @@ def insert_report(
 def list_reports_needing_embedding(conn, *, embedding_model: str, limit: int | None = None):
     """Reports not yet embedded by `embedding_model`.
 
-    Drives pipeline/scripts/reembed.py, and is what makes it resumable: rows
-    move out of this result set only once their new vector is committed, so a
-    re-run after an interruption picks up exactly where it stopped. `IS
-    DISTINCT FROM` rather than `!=` because a NULL embedding_model (never
-    embedded) must match too.
+    What makes reembed.py resumable: rows leave this set only once committed.
+    IS DISTINCT FROM, not !=, so never-embedded (NULL) rows match too.
     """
     stmt = (
         select(report.c.id, report.c.summary)
@@ -270,8 +266,8 @@ def count_reports(conn) -> int:
 
 
 def embedding_model_counts(conn):
-    """(embedding_model, count) over reports, for `doctor` and the README's
-    post-re-embed verification query. Includes the NULL group."""
+    """(embedding_model, count) incl. the NULL group, for doctor and the
+    README's post-re-embed verification."""
     return conn.execute(
         select(report.c.embedding_model, func.count())
         .group_by(report.c.embedding_model)
@@ -280,12 +276,9 @@ def embedding_model_counts(conn):
 
 
 def update_report_embedding(conn, *, report_id, embedding, embedding_model, embedding_dim) -> None:
-    """Replace a report's vector and both provenance columns as one statement.
-
-    One UPDATE, not three: a vector that outlives its own provenance is exactly
-    the mixed-vintage state §5.3 wants to be detectable, and the migration's
-    CHECK constraint would reject the intermediate anyway.
-    """
+    """Vector and both provenance columns in one UPDATE -- a vector that
+    outlives its provenance is the mixed-vintage state §5.3 exists to prevent,
+    and the CHECK would reject the intermediate anyway."""
     conn.execute(
         report.update()
         .where(report.c.id == report_id)
