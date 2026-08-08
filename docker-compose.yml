@@ -9,7 +9,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT:-55432}:5432"
+      # Default kept below 49152 on purpose. Ports in the ephemeral range get
+      # reserved by Hyper-V/WinNAT on Windows hosts, and Docker then fails to
+      # bind with a "forbidden by its access permissions" error that looks like
+      # a permissions problem rather than a taken port. Check with:
+      #   netsh int ipv4 show excludedportrange protocol=tcp
+      - "${POSTGRES_PORT:-15432}:5432"
     volumes:
       - pronoia_pgdata:/var/lib/postgresql/data
     healthcheck:
