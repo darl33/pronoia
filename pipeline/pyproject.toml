@@ -32,7 +32,7 @@ build-backend = "hatchling.build"
 
 # Flat layout: these are top-level modules, not a src/ package.
 [tool.hatch.build.targets.wheel]
-only-include = ["enrich", "ingest", "refdata", "scripts", "pronoia.py"]
+only-include = ["enrich", "eval", "ingest", "refdata", "scripts", "pronoia.py"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

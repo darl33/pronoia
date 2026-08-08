@@ -1,0 +1,11 @@
+REPLACE THIS FILE with the sanitized plain text of one vendor threat report.
+
+Paste what the pipeline would store in raw_document.clean_text -- plain text, no
+HTML, no navigation chrome, no cookie banner. See gold/README.md for the one-liner
+that produces it from a saved page with the same sanitizer the ingestion path uses.
+
+Defang every indicator before saving (hxxp, [.]), per the repo rule against live
+IOCs in fixtures. Defanging does not affect scoring: actors, techniques and targets
+are what the harness measures, and the model reads the same defanged text.
+
+Then fill in 0005-placeholder-vendor_blog.json and set its "status" to "annotated".

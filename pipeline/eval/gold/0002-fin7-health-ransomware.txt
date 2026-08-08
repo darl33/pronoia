@@ -1,0 +1,60 @@
+[SYNTHETIC EVALUATION DOCUMENT — Pronoia gold set. The incident, the victims and
+every indicator below are invented. Addresses are RFC 5737 documentation ranges and
+domains are RFC 2606 reserved names, stored defanged. The actor name is real and is
+used only so that actor resolution is exercised end to end.]
+
+Joint Advisory AA26-113A: Ransomware activity targeting health care providers
+
+Original release date: 2026-04-23
+
+Overview
+
+This joint advisory describes ransomware activity affecting regional hospital
+networks and medical imaging providers in the United States and Canada between
+January and April 2026. Reporting from incident responders attributes the
+activity to FIN7. Fourteen provider organisations have confirmed encryption of
+clinical and administrative systems; in nine of those, data was taken before
+encryption and used as leverage in extortion negotiations.
+
+Technical details
+
+Initial access in the majority of confirmed incidents was gained through an
+internet-facing patient-portal appliance running an unpatched deserialisation
+flaw, which the operators used to obtain code execution as the web service
+account.
+
+In a smaller number of incidents, staff in finance and billing roles received
+mail carrying a document attachment that purported to be a remittance advice.
+Opening the attachment and enabling content executed a loader that retrieved
+the second stage over HTTPS.
+
+Persistence was established on each host by registering a task with the
+operating system scheduler, named to resemble a vendor update service and
+configured to run at logon and every ninety minutes thereafter.
+
+Before deployment of the encryptor, the operators archived selected file shares
+and uploaded them to a commercial file-sharing service over TLS, using an
+account registered with a disposable address. Encryption was then executed
+across hypervisor storage and file servers simultaneously, and volume shadow
+copies were removed.
+
+Indicators of compromise
+
+  198.51.100.203   staging host
+  203.0.113.77     secondary staging host
+  hxxps://updates-remittance[.]invalid/agent   second-stage retrieval
+
+MITRE ATT&CK techniques
+
+The following techniques were observed. This list is not exhaustive.
+
+  T1190   Exploit Public-Facing Application
+  T1486   Data Encrypted for Impact
+  T1567.002   Exfiltration to Cloud Storage
+
+Mitigations
+
+Patch internet-facing appliances on a defined schedule and treat patient-portal
+infrastructure as a tier-zero asset. Restrict which accounts may register
+scheduled tasks. Monitor for bulk uploads to consumer file-sharing services
+from clinical networks. Maintain offline backups and test restoration.

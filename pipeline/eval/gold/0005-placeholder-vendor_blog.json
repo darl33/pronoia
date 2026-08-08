@@ -1,0 +1,19 @@
+{
+  "id": "0005-placeholder-vendor_blog",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0005-placeholder-vendor_blog.txt",
+    "title": "TODO: the document's own title",
+    "source_url": null,
+    "source_kind": "vendor_blog",
+    "published_on": null
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Placeholder. Skipped by the harness until \"status\" becomes \"annotated\" -- an empty annotation scored as real would report a fabricated recall of 1.0. Field shapes and the annotation rules are in README.md; 0001 and 0002 are worked examples."
+}

@@ -1,0 +1,50 @@
+{
+  "id": "0002-fin7-health-ransomware",
+  "status": "annotated",
+  "document": {
+    "text_file": "0002-fin7-health-ransomware.txt",
+    "title": "Joint Advisory AA26-113A: Ransomware activity targeting health care providers",
+    "source_url": null,
+    "source_kind": "synthetic",
+    "published_on": "2026-04-23"
+  },
+  "annotation": {
+    "actors": [
+      { "name": "FIN7", "attribution_confidence": "likely" }
+    ],
+    "techniques": [
+      {
+        "technique_id": "T1190",
+        "explicit_in_text": true,
+        "note": "Listed in the ATT&CK table and described in prose (unpatched deserialisation flaw in a patient-portal appliance)."
+      },
+      {
+        "technique_id": "T1486",
+        "explicit_in_text": true,
+        "note": "Listed in the ATT&CK table."
+      },
+      {
+        "technique_id": "T1567.002",
+        "explicit_in_text": true,
+        "note": "Listed in the ATT&CK table."
+      },
+      {
+        "technique_id": "T1566.001",
+        "explicit_in_text": false,
+        "note": "'mail carrying a document attachment that purported to be a remittance advice' -- absent from the advisory's own ATT&CK table."
+      },
+      {
+        "technique_id": "T1053.005",
+        "explicit_in_text": false,
+        "note": "'registering a task with the operating system scheduler' -- absent from the ATT&CK table."
+      }
+    ],
+    "targets": [
+      { "country": "US", "sector": "health care" },
+      { "country": "CA", "sector": "health care" }
+    ]
+  },
+  "annotated_by": "darl33",
+  "annotated_on": "2026-08-08",
+  "notes": "Worked example, deliberately the opposite shape to 0001: an advisory that publishes its own partial ATT&CK table, so the regex baseline recovers 3 of 5 techniques for free. The two implicit techniques are the ones the advisory's table omits, which is the realistic gap -- advisory tables are routinely incomplete. Pairing this with 0001 keeps the baseline from looking either uselessly weak or unrealistically strong."
+}

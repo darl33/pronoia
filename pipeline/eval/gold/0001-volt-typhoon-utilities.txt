@@ -1,0 +1,65 @@
+[SYNTHETIC EVALUATION DOCUMENT — Pronoia gold set. The incident, the victims and
+every indicator below are invented. Addresses are RFC 5737 documentation ranges and
+domains are RFC 2606 reserved names, stored defanged. The actor name is real and is
+used only so that actor resolution is exercised end to end.]
+
+Pre-positioning in Australian utility networks: an update on Volt Typhoon
+
+Published 2026-04-22
+
+Summary
+
+Between November 2025 and March 2026 we responded to intrusions at four
+organisations across the Australian water and energy sectors, including two
+regional water treatment operators and a distribution network service provider.
+We attribute this activity to Volt Typhoon. The intrusions share tooling,
+tradecraft and infrastructure with previously reported campaigns by the same
+group, and in each case the operators appeared to be establishing durable access
+rather than pursuing immediate disruption or theft.
+
+Initial access
+
+In three of the four intrusions the operators authenticated to internet-facing
+remote administration portals using credentials that were valid, unexpired and
+belonged to real staff accounts. There was no exploitation and no malware on the
+perimeter device. The accounts had been enrolled in the corporate directory for
+years and, in two cases, belonged to contractors who had not worked with the
+organisation since 2023. In the fourth intrusion the operators connected through
+a legacy VPN concentrator that had been left reachable from the internet after a
+network refresh, using a service account that was never intended for interactive
+logon.
+
+Once inside, the operators worked almost entirely with software already present
+on the hosts. We recovered no dropper, no implant and no compiled payload from
+any of the affected environments.
+
+Discovery and lateral movement
+
+The first commands executed on each beachhead host enumerated the local system:
+installed patches, network adapter configuration, mapped drives, running
+services and the local administrator group. On two hosts these commands were
+issued through the built-in scripting shell, invoked with an encoded command
+line so that the arguments did not appear in plain text in the process
+telemetry. The operators then moved between hosts using the native remote
+desktop client, reusing the same valid credentials rather than harvesting new
+ones.
+
+Command and control
+
+Outbound traffic from the affected environments was relayed through compromised
+small-office routers on residential Australian and New Zealand ISP ranges before
+reaching operator infrastructure, a pattern consistent with T1090 and one that
+substantially complicates network-based detection: to a defender reviewing
+netflow, the traffic resembles ordinary domestic broadband. We observed relay
+traffic to 192.0.2.117 and to 198.51.100.42, and a single beacon to
+hxxps://cdn-status[.]water-ops[.]example over 443.
+
+Assessment
+
+We assess with high confidence that the objective was persistent access to
+operational technology support networks rather than data theft. No data
+staging, archiving or exfiltration was observed in any of the four intrusions,
+and the operators repeatedly took steps to remain within the noise floor of
+normal administrative activity. Organisations in the water and energy sectors
+should audit remote access accounts belonging to former contractors and review
+authentication logs for service accounts used interactively.

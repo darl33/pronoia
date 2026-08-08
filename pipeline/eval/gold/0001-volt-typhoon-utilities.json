@@ -1,0 +1,55 @@
+{
+  "id": "0001-volt-typhoon-utilities",
+  "status": "annotated",
+  "document": {
+    "text_file": "0001-volt-typhoon-utilities.txt",
+    "title": "Pre-positioning in Australian utility networks: an update on Volt Typhoon",
+    "source_url": null,
+    "source_kind": "synthetic",
+    "published_on": "2026-04-22"
+  },
+  "annotation": {
+    "actors": [
+      { "name": "Volt Typhoon", "attribution_confidence": "confirmed_by_source" }
+    ],
+    "techniques": [
+      {
+        "technique_id": "T1078",
+        "explicit_in_text": false,
+        "note": "Authentication with valid, unexpired staff and contractor credentials; no exploitation."
+      },
+      {
+        "technique_id": "T1133",
+        "explicit_in_text": false,
+        "note": "Internet-facing remote administration portals and a legacy VPN concentrator as the entry point."
+      },
+      {
+        "technique_id": "T1059.001",
+        "explicit_in_text": false,
+        "note": "'the built-in scripting shell, invoked with an encoded command line' -- PowerShell, never named."
+      },
+      {
+        "technique_id": "T1082",
+        "explicit_in_text": false,
+        "note": "Enumeration of patches, adapters, drives, services on each beachhead host."
+      },
+      {
+        "technique_id": "T1021.001",
+        "explicit_in_text": false,
+        "note": "'moved between hosts using the native remote desktop client'."
+      },
+      {
+        "technique_id": "T1090",
+        "explicit_in_text": true,
+        "note": "Cited by ID in the Command and control section; the regex baseline should find this one."
+      }
+    ],
+    "targets": [
+      { "country": "AU", "sector": "water and sewerage" },
+      { "country": "AU", "sector": "energy" }
+    ]
+  },
+  "annotated_by": "darl33",
+  "annotated_on": "2026-08-08",
+  "notes": "Worked example. Five of six techniques are described in prose only, which is the shape a real vendor report has and the reason the baseline's technique recall should land near 1/6. NZ appears in the text only as the location of relay infrastructure, not as a victim, so it is deliberately absent from targets -- the baseline is expected to emit it as a false positive."
+}
