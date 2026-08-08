@@ -3,7 +3,11 @@ docs/HANDOFF_PROMPTS.md
 docs/LEARNING_PLAN.md
 
 # --- env ---
+# Glob, not just `.env`: hand-made backups (.env.bak, .env.local, .env.old)
+# carry the same live keys and are exactly what gets committed by accident.
 .env
+.env.*
+!.env.example
 
 # --- Python (pipeline/) ---
 __pycache__/
