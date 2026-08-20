@@ -1,10 +1,9 @@
 """The non-LLM baseline (eval/baseline.py).
 
-These tests pin the baseline's *weaknesses* as much as its behaviour. The
-baseline exists to be beaten (DESIGN.md §7), and a baseline that quietly got
-stronger — matching technique names, or learning to tell a victim from an
-attacker — would shrink the measured LLM lift without anyone noticing. So the
-known limits are asserted, not just tolerated.
+These pin the baseline's *weaknesses* as much as its behaviour: it exists to be
+beaten (§7), and one that quietly got stronger -- matching technique names, or
+learning to tell a victim from an attacker -- would shrink the measured LLM lift
+without anyone noticing.
 """
 
 from __future__ import annotations

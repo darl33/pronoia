@@ -1,30 +1,20 @@
-"""The non-LLM baseline (DESIGN.md §7).
+"""The non-LLM baseline (DESIGN.md §7): regex for technique IDs the document
+cites by ID, alias string matching for actors.
 
-> a non-LLM baseline (regex for technique IDs explicitly cited in text + alias
-> string matching for actors) to demonstrate the LLM's lift on *implicit*
-> technique description. Cheap to build, makes the comparison honest.
+It is built to be beaten, and its weaknesses are the argument. Each predicts a
+specific column in the scorecard:
 
-It is built to be beaten, and its weaknesses are the argument. Three of them
-are worth naming because each one predicts a specific column in the scorecard:
+* **Techniques.** It finds one only where the document writes the ID out, so its
+  recall is roughly the `explicit_in_text` fraction of the gold set. The gap
+  between that and the model's recall on the implicit subset is what §7 wants.
+* **Actors.** Alias matching is genuinely strong here. If the LLM does not beat
+  it by much, that is a true finding rather than a broken baseline.
+* **Targets.** It cannot tell a victim from an attacker: "Russian actors
+  targeting Ukrainian energy" yields RU and UA where the gold has only UA.
+  Precision suffers exactly where the prompt's attribution discipline works.
 
-* **Techniques.** It finds a technique only where the document writes the ID
-  out. Vendor reports mostly describe behaviour ("the operator scheduled a
-  task that relaunched the loader hourly") and never name T1053.005, so the
-  baseline's technique recall is roughly the fraction of the gold set marked
-  `explicit_in_text`. The gap between that and the model's recall on the
-  implicit subset is the number §7 wants.
-* **Actors.** Alias matching is strong here, and it should be: this is the one
-  field where a string search is close to the right algorithm, and if the LLM
-  does not beat it by much, that is a true finding rather than a broken
-  baseline.
-* **Targets.** It cannot tell a victim from an attacker. "Russian
-  state-sponsored actors targeting Ukrainian energy" yields RU and UA both,
-  where the gold set has only UA. Precision suffers exactly where the §5.2
-  attribution-discipline rule in the prompt is doing work.
-
-It shares the closed-world technique check and the country/sector vocabulary
-with the real path, so the comparison isolates extraction quality rather than
-rewarding the LLM for post-processing the baseline does not get.
+It shares the closed-world check and the country/sector vocabulary with the real
+path, so the comparison isolates extraction rather than post-processing.
 """
 
 from __future__ import annotations

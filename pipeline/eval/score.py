@@ -1,22 +1,16 @@
 """Turning predictions into the numbers the scorecard prints.
 
-All arithmetic lives in metrics.py. This module only decides *what gets
-compared to what*, which is where the judgement calls are:
+All arithmetic lives in metrics.py; this module only decides *what is compared to
+what*, which is where the judgement calls are:
 
-* **Techniques are scored twice** (§7), at sub-technique and parent
-  granularity, reported separately and never merged into one "technique"
-  number. The parent score is the one §7 sets the >0.85 target on.
-* **Targets are scored as two fields, not as pairs.** A gold target of
-  (AU, water and sewerage) against a predicted (AU, null) is one right answer
-  and one omission, but scoring the pair jointly records it as a total miss on
-  both. Splitting country and sector reports what actually happened, and the
-  country set is the one §8's /correlate query consumes.
-* **Only recall is reported on the implicit-technique subset.** A prediction
-  carries no explicit/implicit label -- that annotation exists on the gold side
-  only -- so there is no way to say whether a false positive belongs to the
-  subset. Recall is well defined there; precision is not, and printing one
-  anyway would be the kind of quietly meaningless number this whole file
-  exists to avoid.
+* **Techniques are scored twice**, at sub-technique and parent granularity, never
+  merged. §7 sets its >0.85 target on the parent score.
+* **Targets are scored as two fields, not pairs.** Gold (AU, water) against a
+  predicted (AU, null) is one hit and one omission; scoring the pair jointly
+  would record a total miss on both.
+* **Only recall is reported on the implicit subset.** Predictions carry no
+  explicit/implicit label, so a false positive cannot be attributed to it.
+  Recall is well defined there; precision is not.
 """
 
 from __future__ import annotations

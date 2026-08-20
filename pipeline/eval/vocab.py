@@ -1,19 +1,14 @@
 """Controlled vocabularies for the target field.
 
-Two jobs, both of them scoring-critical:
+`normalize_sector` is applied to *both* sides before `score_sets`: without it
+"healthcare", "Health Care" and "health sector" are three answers and the sector
+metric measures spelling. `COUNTRY_NAMES` is how the §7 baseline finds target
+countries at all -- deliberately partial, see the note there.
 
-* `normalize_sector` is applied to *both* sides before `score_sets`, so the
-  gold annotation and the model output are compared in one vocabulary rather
-  than on surface form. Without it "healthcare", "Health Care" and "health
-  sector" are three different answers and the sector metric measures spelling.
-* `COUNTRY_NAMES` gives the non-LLM baseline (§7) a way to find target
-  countries at all. It is deliberately partial -- see the note there.
-
-The sector list is the SOCI Act's critical infrastructure sectors (§1: "SOCI
-Act critical infrastructure sectors"), plus the handful of non-SOCI sectors
-that dominate CTI reporting. Anything outside it is left as-is and counted as
-off-vocabulary rather than silently coerced: a model that answers "aerospace"
-should show up as a vocabulary gap to fix in the prompt, not disappear.
+The sector list is the SOCI Act's critical infrastructure sectors (§1) plus the
+non-SOCI sectors common in CTI reporting. Anything outside it is left as-is and
+counted as off-vocabulary rather than coerced: "aerospace" should surface as a
+vocabulary gap to fix in the prompt, not disappear.
 """
 
 from __future__ import annotations

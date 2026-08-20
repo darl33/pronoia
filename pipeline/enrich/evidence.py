@@ -1,31 +1,19 @@
 """Guardrail 3 (DESIGN.md §5.2): evidence quotes as hallucination checks.
 
-Every technique mention must carry a quote. Post-validation, that quote must
-appear as a substring of the document's clean_text after normalization; if it
-doesn't, the mention is dropped. This is the guardrail that converts an
-unfalsifiable claim ("the report describes spearphishing") into a checkable
-one: either the span is in the source document or the model invented it.
+Every technique mention carries a quote, and that quote must appear as a
+substring of clean_text after normalization or the mention is dropped. This
+converts an unfalsifiable claim ("the report describes spearphishing") into a
+checkable one.
 
-Normalization policy -- what we forgive, and why:
+Forgiven, because the HTML->text path and vendor CMSes introduce them while a
+model re-typing the sentence will not: whitespace runs, NFKC-foldable Unicode,
+and typographic variants with an ASCII equivalent (curly quotes, dashes).
 
-  * whitespace runs, including newlines introduced by html_to_clean_text's
-    block-element splitting. A quote spanning a line break in the source is
-    still a real quote.
-  * NFKC-foldable Unicode: non-breaking spaces, fullwidth punctuation. These
-    survive the HTML->text path and differ from what a model reproduces.
-  * typographic variants of characters that have an ASCII equivalent: curly
-    quotes, en/em dashes, ellipsis. Vendor CMSes apply smart-quote
-    substitution; a model re-typing the sentence produces the ASCII form.
+Not forgiven: case, because verbatim means verbatim and re-casing is paraphrase;
+and elision, because a quote is not evidence of what sits inside its "...".
 
-  * case is NOT forgiven. Verbatim means verbatim; a model that re-cases a
-    sentence is paraphrasing it.
-  * elision is NOT forgiven. A quote containing "..." collapses to a single
-    span that will not be found, which is the correct outcome -- an elided
-    quote is not evidence of what sits inside the elision.
-
-The floor on quote length is a second, weaker check: a span short enough to
-occur incidentally ("the attacker") is not evidence for a technique claim even
-when it does appear in the text.
+The length floor is a weaker second check: a span short enough to occur
+incidentally ("the attacker") is not evidence even when it is present.
 """
 
 from __future__ import annotations

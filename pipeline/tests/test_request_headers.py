@@ -1,14 +1,9 @@
-"""The request headers ingest/fetch.py sends.
+"""The request headers ingest/fetch.py sends (DESIGN.md §3).
 
-Both are load-bearing and both were found empirically against the real feeds in
-DESIGN.md §3, so they are pinned here: silently reverting either one breaks
-ingestion from a specific source in a way no other test would catch.
-
-* `Accept-Encoding: gzip` — httpx defaults to "gzip, deflate", and CISA's edge
-  403s any request that advertises `deflate`. Isolated header by header: the
-  same User-Agent gets 403 with "gzip, deflate" and 200 with "gzip".
-* `User-Agent` without a "(+url)" suffix — ACSC's edge resets the connection
-  for any bot-announcing UA.
+Both were found empirically against the real feeds, and reverting either breaks
+one source in a way no other test catches: CISA 403s any `Accept-Encoding`
+containing `deflate` (httpx's default), and ACSC resets the connection for any
+User-Agent carrying a "(+url)" suffix.
 """
 
 from __future__ import annotations

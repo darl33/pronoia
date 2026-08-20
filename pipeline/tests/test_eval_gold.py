@@ -1,9 +1,8 @@
 """Gold-set loading and validation (eval/gold.py).
 
-The loader's job is to make a bad annotation loud. A gold set that silently
+The loader's job is to make a bad annotation loud: a gold set that silently
 disagrees with the pipeline's vocabulary produces a depressed score that looks
-exactly like a model failure, which is the single most expensive way for an
-eval to be wrong.
+exactly like a model failure.
 """
 
 from __future__ import annotations

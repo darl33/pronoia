@@ -1,7 +1,6 @@
-"""The metric arithmetic (eval/metrics.py), including every convention the
-scorecard depends on. These are the numbers DESIGN.md §7 reports, so the
-conventions are pinned here rather than left to be rediscovered from the code:
-zero-denominator behaviour, micro vs macro, and technique granularity.
+"""The metric arithmetic (eval/metrics.py) and every convention the scorecard
+depends on: zero denominators, micro vs macro, technique granularity. These are
+the numbers §7 reports, so they are pinned rather than rediscovered from code.
 """
 
 from __future__ import annotations
