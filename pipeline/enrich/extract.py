@@ -1,17 +1,14 @@
 """Guardrail 1 (DESIGN.md §5.2): structured-output enforcement.
 
-The prompt asks for JSON only. That request is not the control -- models wrap
-JSON in markdown fences, prepend "Here is the extraction:", or emit a field
-that isn't in the contract. The control is: strip fences defensively, run
-`Extraction.model_validate_json`, and on failure record `invalid_json` or
-`schema_fail` on the enrichment_run and retry *once* with the validation error
-appended to the prompt. Two failures = give up, keep the audit trail.
+Asking for JSON is not the control -- models wrap it in fences, prepend prose, or
+invent fields. The control is: strip fences, `Extraction.model_validate_json`,
+and on failure record `invalid_json` or `schema_fail` on the enrichment_run and
+retry once with the validation error appended.
 
-Capped at two attempts on purpose. A model that fails the contract twice with
-the error text in front of it is not going to succeed on the third try, and an
-uncapped retry loop against a paid API is how a pipeline quietly bankrupts
-itself. The failed attempts are rows in enrichment_run either way, so a
-recurring schema failure is visible in the data rather than only in logs.
+Two attempts, capped on purpose: a model that fails the contract twice with the
+error in front of it will not succeed on the third, and an uncapped retry loop
+against a paid API is how a pipeline quietly bankrupts itself. Failed attempts
+stay as rows, so recurring schema failure is visible in the data, not just logs.
 """
 
 from __future__ import annotations
@@ -169,12 +166,9 @@ class ChunkOutcome:
 class DocumentOutcome:
     """One document's result, however many model calls it took.
 
-    A partially-failed chunked document still produces an extraction from the
-    chunks that worked. That is the degradation §5.3 asks for -- the
-    alternative is discarding four good chunks because the fifth returned bad
-    JSON -- but it under-extracts silently unless someone says so, which is
-    what `failed_chunks` is for. It is logged by the pipeline and reported per
-    backend in the §7 scorecard.
+    A partially-failed chunked document still merges the chunks that worked --
+    the §5.3 degradation, versus discarding four good chunks for one bad one.
+    But that is silent under-extraction unless counted, which is `failed_chunks`.
     """
 
     chunks: list[ChunkOutcome] = field(default_factory=list)
@@ -198,12 +192,9 @@ class DocumentOutcome:
 
     @property
     def attempts(self) -> list[tuple[int | None, Attempt]]:
-        """Every model call made for this document, tagged with its chunk.
-
-        Flattened for the audit trail: guardrail 1 requires one enrichment_run
-        row per attempt, and chunking multiplies attempts rather than replacing
-        them.
-        """
+        """Every model call for this document, tagged with its chunk. Flattened
+        because guardrail 1 wants one enrichment_run row per attempt, and
+        chunking multiplies attempts rather than replacing them."""
         return [
             (chunk.index, attempt) for chunk in self.chunks for attempt in chunk.outcome.attempts
         ]
@@ -240,9 +231,8 @@ class DocumentOutcome:
 
 
 def _sum_tokens(attempts, attribute: str) -> int | None:
-    """None, not 0, when no attempt reported usage -- some OpenAI-compatible
-    runtimes omit the usage block entirely, and reporting a cost of zero for
-    a run that cost something is worse than reporting nothing."""
+    """None, not 0, when no attempt reported usage: some OpenAI-compatible
+    runtimes omit the usage block, and a cost of zero would be a lie."""
     values = [getattr(attempt, attribute) for _, attempt in attempts]
     known = [value for value in values if value is not None]
     return sum(known) if known else None
@@ -258,18 +248,16 @@ def extract_document(
     max_attempts: int = MAX_ATTEMPTS,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> DocumentOutcome:
-    """Extract one document, chunking it first if it exceeds the budget.
+    """Extract one document, chunking first if it exceeds the budget.
 
-    `render_user` is passed as a callable rather than a rendered string because
-    each chunk needs its own enclosure -- and rendering the template with an
-    empty document measures the prompt overhead exactly, instead of estimating
-    it. Keeping the prompt files out of this module is deliberate: guardrail 1
-    stays portable across prompts and providers.
+    `render_user` is a callable, not a rendered string: each chunk needs its own
+    enclosure, and rendering it empty measures the prompt overhead exactly rather
+    than estimating it. Keeping the prompt files out of this module keeps
+    guardrail 1 portable across prompts and providers.
 
-    On a hosted backend this is a single call and behaves exactly as
-    `run_extraction` did, which is the property that matters -- the primary
-    backend's §7 scores must not move because a fallback path was added for a
-    different backend.
+    On a hosted backend this is one call behaving exactly as `run_extraction`
+    did -- the primary backend's §7 scores must not move because a fallback path
+    was added for a different one.
     """
     budget = document_budget_chars(
         max_input_tokens, prompt_overhead_chars=len(system) + len(render_user(""))

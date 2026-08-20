@@ -1,10 +1,8 @@
 """Scorecard rendering (eval/scorecard.py).
 
-A smoke test with a purpose: rendering happens at the very end of a run that
-has already spent a model call per document per backend, so a formatting crash
-there is the most expensive possible place for one. This exercises every
-section, including the branches that only appear when there are failures and
-gold-set defects.
+A smoke test with a purpose: rendering happens after a run has already spent a
+model call per document per backend, so a formatting crash there is the most
+expensive possible place for one. Covers the failure and defect branches too.
 """
 
 from __future__ import annotations

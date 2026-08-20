@@ -150,16 +150,16 @@ def _check_completions() -> tuple[list[Check], object | None]:
         Check("completions", OK, f"{config.provider} / {config.model} via {config.base_url}", config.source)
     ]
 
-    # The context budget is worth printing even though nothing is wrong with
-    # it: it is the one setting that silently changes *how* a document is
-    # extracted (§5.3), and a reviewer wondering why a long report came back
-    # thin should not have to read the source to find the number.
+    # Printed even though nothing is wrong: this is the one setting that
+    # silently changes *how* a document is extracted (§5.3), and both halves
+    # share one window on a local model.
     checks.append(
         Check(
-            "  context budget",
+            "  token budget",
             OK,
-            f"{config.max_input_tokens:,} input tokens; longer documents are chunked",
-            "set MAX_INPUT_TOKENS to match your model's window",
+            f"{config.max_input_tokens:,} in / {config.max_output_tokens:,} out; "
+            "longer documents are chunked",
+            "set MAX_INPUT_TOKENS / MAX_OUTPUT_TOKENS to match your model's window",
         )
     )
 

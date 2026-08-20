@@ -10,18 +10,14 @@ closed-world and actor-resolution guardrails are the real ones, runs the live
 extraction path over every annotated fixture in `gold/`, scores it against the
 annotations, and writes a committed markdown scorecard per backend.
 
-**Backends (§7 cross-backend run).** `--backend primary` is whatever the normal
-config resolution produces (§5.4: usually just `LLM_API_KEY`). `--backend local`
-targets an OpenAI-compatible endpoint. They are separate variables --
-`EVAL_LOCAL_BASE_URL` / `EVAL_LOCAL_MODEL`, falling back to the §5.3
-`LLM_BASE_URL` / `LLM_MODEL` -- for one reason: `--backend both` has to hold
-two configurations at once, and if the local backend read the same variables as
-the primary one, the two would collapse into the same endpoint and the
-comparison table would compare a model with itself.
+**Backends (§7).** `--backend primary` is normal config resolution (§5.4);
+`--backend local` reads `EVAL_LOCAL_BASE_URL` / `EVAL_LOCAL_MODEL`, falling back
+to `LLM_BASE_URL` / `LLM_MODEL`. Separate variables for one reason: `--backend
+both` holds two configurations at once, and sharing them would collapse the
+comparison into a model against itself.
 
-**Cost.** This calls a model once per document per backend. `--baseline-only`
-exercises the whole harness, including every metric and the gold-set
-validation, without a single API call; use it when changing the scoring code.
+**Cost.** One model call per document per backend. `--baseline-only` exercises
+the whole harness, metrics and gold-set validation included, with no API calls.
 """
 
 from __future__ import annotations
@@ -38,6 +34,7 @@ from enrich.actors import ActorIndex
 from enrich.client import build_completion_client
 from enrich.config import (
     LOCAL_MAX_INPUT_TOKENS,
+    LOCAL_MAX_OUTPUT_TOKENS,
     OPENAI_COMPATIBLE,
     CompletionConfig,
     ConfigError,
@@ -45,6 +42,7 @@ from enrich.config import (
     probe_openai_compatible,
     resolve_completion,
     resolve_max_input_tokens,
+    resolve_max_output_tokens,
 )
 from enrich.chunk import BudgetTooSmall, document_budget_chars
 from enrich.db import load_technique_ids, load_threat_actors
@@ -103,10 +101,9 @@ def resolve_local_backend() -> CompletionConfig:
         source = "EVAL_LOCAL_BASE_URL" if _env("EVAL_LOCAL_BASE_URL") else "LLM_BASE_URL"
 
     if model is None:
-        # First advertised non-embedding model. Unlike the pipeline's own
-        # resolution this refuses to fall back to model_ids[0]: guessing the
-        # model silently would put an unidentified model in a committed
-        # scorecard, and the scorecard's whole value is being attributable.
+        # Unlike the pipeline's resolution this refuses to fall back to
+        # model_ids[0]: an unidentified model in a committed scorecard defeats
+        # the scorecard's whole point, which is being attributable.
         model = next((m for m in model_ids if "embed" not in m.lower()), None)
     if model is None:
         raise ConfigError(
@@ -121,10 +118,10 @@ def resolve_local_backend() -> CompletionConfig:
         api_key=api_key,
         native_sdk=False,
         source=source,
-        # The conservative local budget unless MAX_INPUT_TOKENS says otherwise:
-        # /v1/models does not report a context window, so it cannot be
-        # discovered, and guessing high turns a chunked run into a failed one.
+        # /v1/models does not report a context window, so the conservative
+        # local pair stands unless the env overrides it.
         max_input_tokens=resolve_max_input_tokens(LOCAL_MAX_INPUT_TOKENS),
+        max_output_tokens=resolve_max_output_tokens(LOCAL_MAX_OUTPUT_TOKENS),
     )
 
 
@@ -167,9 +164,9 @@ def run_llm_backend(name: str, config: CompletionConfig, fixtures, *,
     check_budget(config)
     client = build_completion_client(config)
     log.info(
-        "backend=%s provider=%s model=%s endpoint=%s max_input_tokens=%d (%s)",
+        "backend=%s provider=%s model=%s endpoint=%s tokens=%d/%d (%s)",
         name, config.provider, config.model, config.base_url,
-        config.max_input_tokens, config.source,
+        config.max_input_tokens, config.max_output_tokens, config.source,
     )
 
     predictions = []
@@ -181,6 +178,7 @@ def run_llm_backend(name: str, config: CompletionConfig, fixtures, *,
             actor_index=actor_index,
             canonical_names=canonical_names,
             max_input_tokens=config.max_input_tokens,
+            max_output_tokens=config.max_output_tokens,
         )
         if not prediction.succeeded:
             log.warning(
@@ -282,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             gold_documents=len(fixtures),
             placeholders=len(gold_set.placeholders),
             max_input_tokens=config.max_input_tokens,
+            max_output_tokens=config.max_output_tokens,
         )
         path = write(
             scorecard_path(metadata, args.out_dir),

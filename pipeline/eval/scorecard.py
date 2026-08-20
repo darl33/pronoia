@@ -1,15 +1,10 @@
-"""Markdown scorecards (DESIGN.md §7).
+"""Markdown scorecards, one per (backend, model, prompt_version) (DESIGN.md §7).
 
-> emits a markdown scorecard per `(model, prompt_version)` pair. Scorecards are
-> committed, so the README can show a real table: prompt v1 vs v2 vs model swap.
-
-Committed output is the reason for two properties here that would otherwise be
-fussy. The filename is keyed on `(backend, model, prompt_version)` so a re-run
-of the same configuration overwrites its own cell rather than accumulating
-near-duplicate files, and the run metadata (timestamp, git commit, whether the
-tree was dirty) goes *inside* the file, so a scorecard in the repo can always
-be traced to the code that produced it. A scorecard you cannot attribute is
-decoration.
+Being committed output explains two otherwise-fussy properties: the filename is
+keyed on that triple so a re-run overwrites its own cell instead of accumulating
+near-duplicates, and the run metadata (timestamp, git commit, whether the tree
+was dirty) lives *inside* the file. A scorecard you cannot attribute to a commit
+is decoration.
 """
 
 from __future__ import annotations
@@ -44,14 +39,14 @@ class RunMetadata:
     gold_documents: int
     placeholders: int
     max_input_tokens: int
+    max_output_tokens: int = 0
 
 
 def git_commit() -> str:
     """Short hash, suffixed '-dirty' when the tree has uncommitted changes.
 
-    The suffix is the important half: a scorecard produced from a modified
-    tree is not reproducible from any commit, and saying so is cheaper than
-    discovering it later from numbers that will not replicate.
+    The suffix is the important half: numbers from a modified tree replicate from
+    no commit, and saying so now is cheaper than discovering it later.
     """
     try:
         commit = subprocess.run(
@@ -228,7 +223,7 @@ def render_scorecard(
             ["Generated at", metadata.generated_at],
             ["Gold documents scored", str(metadata.gold_documents)],
             ["Placeholder fixtures skipped", str(metadata.placeholders)],
-            ["Context budget (MAX_INPUT_TOKENS)", f"{metadata.max_input_tokens:,}"],
+            ["Token budget (in / out)", f"{metadata.max_input_tokens:,} / {metadata.max_output_tokens:,}"],
             ["Documents chunked (§5.3)", f"{llm.chunked_documents} of {len(llm.predictions)}"],
             ["Tokens (in / out)", f"{input_tokens:,} / {output_tokens:,}"],
         ]),
@@ -317,15 +312,9 @@ def render_scorecard(
 
 def render_comparison(prompt_version: str, results: list[tuple[RunMetadata, SystemScore]],
                       baseline: SystemScore) -> str:
-    """The cross-backend table (§7).
-
-    > This converts "provider-agnostic" from an architectural assertion into a
-    > measured one [...] Expect the local model to score materially worse on
-    > implicit technique extraction; that gap *is* the finding, not a failure.
-
-    The baseline column is shared: it does not depend on the backend, so it is
-    the fixed reference both backends are read against.
-    """
+    """The cross-backend table (§7): what makes "provider-agnostic" measured
+    rather than asserted. The baseline column is shared -- it does not depend on
+    the backend, so it is the fixed floor both are read against."""
     header = ["Field"] + [f"{meta.backend} ({meta.model})" for meta, _ in results] + ["baseline"]
 
     rows = []

@@ -1,12 +1,9 @@
-"""The context budget: splitting, merging, and the document-level extraction
-path (DESIGN.md §5.3).
+"""The context budget: splitting, merging, and document-level extraction (§5.3).
 
-The property that matters most is asserted first and repeatedly: **every chunk
-is a contiguous slice of the document**. Guardrail 3 checks evidence quotes
-against the whole `clean_text` after extraction, so a chunk that is not a
-literal substring would make the model's honest quotes unverifiable and drop
-them -- a silent, total loss of the technique field on exactly the long
-documents chunking exists to rescue.
+The property asserted most often is that **every chunk is a contiguous slice**.
+Guardrail 3 checks quotes against the whole `clean_text`, so a chunk that is not
+a literal substring would drop the model's honest quotes -- a silent, total loss
+of the technique field on the long documents chunking exists to rescue.
 """
 
 from __future__ import annotations
@@ -218,6 +215,7 @@ class _ScriptedClient:
 
     def complete(self, system, user, *, max_tokens=1000):
         self.prompts.append(user)
+        self.max_tokens = max_tokens
         payload = self._responses.pop(0)
         text = payload if isinstance(payload, str) else json.dumps(payload)
         return CompletionResult(text=text, input_tokens=10, output_tokens=5, stop_reason="end_turn")
@@ -298,3 +296,13 @@ def test_token_usage_is_summed_across_chunks():
 
     assert outcome.input_tokens == 10 * outcome.chunk_count
     assert outcome.output_tokens == 5 * outcome.chunk_count
+
+
+def test_output_cap_reaches_the_client():
+    """The other half of the context budget: a small backend's output cap has
+    to arrive at the call, not just its input budget."""
+    client = _ScriptedClient([_payload("One.", "T1078")])
+    extract_document(
+        client, "system", _render, _document(1), max_input_tokens=50_000, max_tokens=2048
+    )
+    assert client.max_tokens == 2048

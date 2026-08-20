@@ -1,19 +1,14 @@
 """Running the live pipeline over one gold fixture (DESIGN.md §7).
 
-This module calls `extract_document` and `validate_extraction` directly rather
-than reimplementing them. That is the whole point of the harness: §7 says it
-"executes the live pipeline against gold-set documents", so what is measured
-has to be the shipped extraction path with the shipped guardrails, right down
-to the retry. Anything reimplemented here would be a second, unshipped system
-whose scores describe nothing.
+Calls `extract_document` and `validate_extraction` directly rather than
+reimplementing them: §7 measures "the live pipeline", so anything reimplemented
+here would be a second, unshipped system whose scores describe nothing.
 
-The only step the harness omits is the database write (enrich/run.py `_persist`),
-because a gold document is not a raw_document and an eval run must not be able
-to add rows to the dataset it is measuring.
+The one omitted step is the database write -- a gold document is not a
+raw_document, and an eval must not add rows to the dataset it is measuring.
 
-`Prediction` is the common shape both systems produce -- the LLM path here and
-the keyword baseline in baseline.py -- so `score.py` never learns which one it
-is looking at.
+`Prediction` is the shape both systems produce, so `score.py` never learns which
+one it is looking at.
 """
 
 from __future__ import annotations
@@ -91,14 +86,12 @@ def _targets_from(targets) -> tuple[set[str], set[str], int]:
 
 
 def _evidence_validity(extraction, clean_text: str) -> int:
-    """Count technique mentions whose quote is a real span of the document.
+    """Technique mentions whose quote is a real span of the document.
 
-    Recomputed here rather than read off `validate_extraction`'s drop list,
-    because that path checks the closed world first and short-circuits: a
-    mention with a hallucinated ID never reaches the quote check, so counting
-    drops would silently shrink the denominator and flatter the validity rate.
-    §7 asks for the rate over every quote the model wrote, so every quote is
-    checked -- the same `EvidenceIndex`, just without the ordering dependency.
+    Recomputed rather than read off `validate_extraction`'s drops, which check
+    the closed world first and short-circuit: a hallucinated ID never reaches the
+    quote check, so counting drops would shrink the denominator and flatter the
+    rate. §7 wants it over every quote the model wrote.
     """
     index = EvidenceIndex(clean_text)
     return sum(1 for mention in extraction.techniques if index.check(mention.evidence_quote).ok)
@@ -112,14 +105,13 @@ def predict_llm(
     actor_index,
     canonical_names: dict,
     max_input_tokens: int,
+    max_output_tokens: int,
 ) -> Prediction:
     """Run the extraction contract + all §5.2 guardrails over one document.
 
-    `canonical_names` maps threat_actor.id -> canonical_name. Scoring on the
-    resolved identity rather than on the string the model wrote is the only
-    defensible choice: guardrail 4 exists precisely so that "Sandworm Team"
-    and "APT44" become one row, and an eval that compared raw strings would
-    score the system as wrong for succeeding at that.
+    `canonical_names` maps threat_actor.id -> canonical_name: scoring resolved
+    identity rather than the model's raw string is the only defensible choice,
+    since guardrail 4 exists so "Sandworm Team" and "APT44" become one row.
     """
     outcome = extract_document(
         client,
@@ -127,6 +119,7 @@ def predict_llm(
         render_user_prompt,
         fixture.text,
         max_input_tokens=max_input_tokens,
+        max_tokens=max_output_tokens,
     )
 
     prediction = Prediction(

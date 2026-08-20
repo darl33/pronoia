@@ -46,11 +46,9 @@ log = logging.getLogger("enrich.run")
 def _record_attempts(engine, document_id, model, version, outcome):
     """Persist one enrichment_run row per attempt; return the id of an ok run.
 
-    On a chunked document (§5.3) that is one row per chunk per attempt, tagged
-    with chunk_index. The returned id is the *first* successful run, which is
-    what report.enrichment_run_id points at: the column is a single FK, so a
-    merged extraction from five chunks has to name one of them, and the first
-    is the only choice that is stable across re-runs.
+    Chunked documents (§5.3) get one row per chunk per attempt. The id returned
+    is the *first* ok run: report.enrichment_run_id is a single FK, so a merged
+    extraction has to name one chunk, and first is the only stable choice.
     """
     ok_run_id = None
     for chunk_index, attempt in outcome.attempts:
@@ -78,9 +76,9 @@ def _record_attempts(engine, document_id, model, version, outcome):
 def _embed_summary(embedder, summary: str):
     """Return (embedding, model, dim), or three Nones.
 
-    Never blocks a run (§5.4): any failure leaves report.embedding NULL and the
-    document is still fully enriched. Embeds the summary, not clean_text --
-    2-3 sentences fit any context window, so no chunking (§5.3, deferred).
+    Never blocks a run (§5.4): failure leaves report.embedding NULL and the
+    document is still fully enriched. Embeds the summary, not clean_text, so it
+    fits any context window.
     """
     if embedder is None:
         return None, None, None
@@ -167,7 +165,7 @@ def _persist(engine, *, document_id, run_id, validated, embedder):
 
 def enrich_document(
     engine, client, row, *, technique_index, actor_index, version, max_input_tokens,
-    embedder=None,
+    max_output_tokens, embedder=None,
 ) -> bool:
     document_id = row["id"]
     title = row["title"] or str(document_id)
@@ -178,13 +176,13 @@ def enrich_document(
         render_user_prompt,
         row["clean_text"],
         max_input_tokens=max_input_tokens,
+        max_tokens=max_output_tokens,
     )
     run_id = _record_attempts(engine, document_id, client.model, version, outcome)
 
     if outcome.was_chunked:
-        # Worth saying out loud: a chunked document is a degraded extraction
-        # (§5.3) -- no call saw the whole text, so cross-chunk reasoning and a
-        # single coherent summary are both gone.
+        # A chunked document is a degraded extraction (§5.3): no call saw the
+        # whole text, so cross-chunk reasoning and a coherent summary are gone.
         log.info("%r exceeded the context budget; extracted in %d chunks", title, outcome.chunk_count)
     for failed in outcome.failed_chunks:
         log.warning(
@@ -243,11 +241,8 @@ def enrich_document(
 
 
 def _resolve_embedder(completion_config):
-    """Resolve slot 2 and check its width once, at startup.
-
-    §5.4 "fail at config time, not mid-run": one probe drops a mismatched
-    provider now, rather than warning once per document for the whole batch.
-    """
+    """Resolve slot 2 and check its width once, at startup -- §5.4 "fail at
+    config time": one probe now, not a warning per document for a whole batch."""
     embedder = get_embedding_client(completion_config)
     if embedder is None:
         log.info("no embedding provider resolved; reports will have a NULL embedding (§5.4)")
@@ -320,13 +315,14 @@ def main() -> None:
         )
 
     log.info(
-        "provider=%s model=%s embedding=%s prompt_version=%s max_input_tokens=%d "
+        "provider=%s model=%s embedding=%s prompt_version=%s tokens=%d/%d "
         "techniques=%d actor_names=%d documents=%d",
         completion_config.provider,
         client.model,
         embedder.model if embedder else "disabled",
         version,
         completion_config.max_input_tokens,
+        completion_config.max_output_tokens,
         len(technique_index),
         len(actor_index),
         len(documents),
@@ -343,6 +339,7 @@ def main() -> None:
                 actor_index=actor_index,
                 version=version,
                 max_input_tokens=completion_config.max_input_tokens,
+                max_output_tokens=completion_config.max_output_tokens,
                 embedder=embedder,
             ):
                 enriched += 1

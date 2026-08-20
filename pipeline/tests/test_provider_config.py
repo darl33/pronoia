@@ -21,6 +21,8 @@ ENV_VARS = (
     "EMBEDDING_MODEL",
     "EMBEDDING_API_KEY",
     "EMBEDDING_DIM",
+    "MAX_INPUT_TOKENS",
+    "MAX_OUTPUT_TOKENS",
 )
 
 
@@ -189,3 +191,46 @@ def test_embedding_resolution_never_raises(monkeypatch):
     monkeypatch.setenv("LLM_API_KEY", "sk-ant-api03-xxxx")
 
     assert cfg.resolve_embedding(cfg.resolve_completion()) is None
+
+
+# ---- token budgets (§5.3): input and output share one window ----
+
+
+def test_hosted_backend_gets_the_large_budgets(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "sk-ant-api03-xxxx")
+    config = cfg.resolve_completion()
+
+    assert config.max_input_tokens == 150_000
+    assert config.max_output_tokens == cfg.HOSTED_MAX_OUTPUT_TOKENS
+
+
+def test_openai_compatible_backend_gets_the_conservative_pair(monkeypatch):
+    """The pair has to fit one window: an 8k local model cannot serve 6k of
+    input and 16k of output, and asking for it is a hard error on vLLM and a
+    silent clamp on Ollama."""
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setenv("LLM_MODEL", "qwen3:8b")
+    config = cfg.resolve_completion()
+
+    assert config.max_input_tokens == cfg.LOCAL_MAX_INPUT_TOKENS
+    assert config.max_output_tokens == cfg.LOCAL_MAX_OUTPUT_TOKENS
+    assert config.max_input_tokens + config.max_output_tokens <= 8192
+
+
+def test_both_budgets_are_overridable(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "sk-ant-api03-xxxx")
+    monkeypatch.setenv("MAX_INPUT_TOKENS", "12000")
+    monkeypatch.setenv("MAX_OUTPUT_TOKENS", "3000")
+    config = cfg.resolve_completion()
+
+    assert (config.max_input_tokens, config.max_output_tokens) == (12000, 3000)
+
+
+@pytest.mark.parametrize("bad", ["not-a-number", "0", "-1"])
+def test_a_bad_budget_override_warns_and_falls_back(monkeypatch, bad):
+    """A typo in a tuning knob must not stop a batch that runs fine on the
+    default."""
+    monkeypatch.setenv("LLM_API_KEY", "sk-ant-api03-xxxx")
+    monkeypatch.setenv("MAX_OUTPUT_TOKENS", bad)
+
+    assert cfg.resolve_completion().max_output_tokens == cfg.HOSTED_MAX_OUTPUT_TOKENS
