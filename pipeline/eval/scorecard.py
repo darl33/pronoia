@@ -43,6 +43,7 @@ class RunMetadata:
     git_commit: str
     gold_documents: int
     placeholders: int
+    max_input_tokens: int
 
 
 def git_commit() -> str:
@@ -153,6 +154,10 @@ def _guardrails(llm: SystemScore) -> str:
          "share of actor mentions that did not resolve to a threat_actor row"],
         ["Off-vocabulary sectors", str(llm.off_vocabulary_sectors),
          "sector strings outside eval/vocab.py SECTORS"],
+        ["Documents chunked (§5.3)", str(llm.chunked_documents),
+         "documents no single call saw whole -- cross-chunk reasoning is gone"],
+        ["Chunks that produced nothing", str(llm.failed_chunks),
+         "silent under-extraction: the rest of the document still merged"],
     ]
     return _table(["Guardrail", "Rate", "What it measures"], rows)
 
@@ -223,6 +228,8 @@ def render_scorecard(
             ["Generated at", metadata.generated_at],
             ["Gold documents scored", str(metadata.gold_documents)],
             ["Placeholder fixtures skipped", str(metadata.placeholders)],
+            ["Context budget (MAX_INPUT_TOKENS)", f"{metadata.max_input_tokens:,}"],
+            ["Documents chunked (§5.3)", f"{llm.chunked_documents} of {len(llm.predictions)}"],
             ["Tokens (in / out)", f"{input_tokens:,} / {output_tokens:,}"],
         ]),
         "",
@@ -341,6 +348,12 @@ def render_comparison(prompt_version: str, results: list[tuple[RunMetadata, Syst
         ["extraction failures"]
         + [str(len(score.failures)) for _, score in results]
         + ["0"],
+        ["documents chunked (§5.3)"]
+        + [str(score.chunked_documents) for _, score in results]
+        + ["0"],
+        ["context budget (tokens)"]
+        + [f"{meta.max_input_tokens:,}" for meta, _ in results]
+        + ["n/a"],
     ]
 
     return "\n".join([
@@ -364,6 +377,12 @@ def render_comparison(prompt_version: str, results: list[tuple[RunMetadata, Syst
         "",
         "The baseline column is identical across backends by construction: it does not "
         "call a model. It is here as the fixed floor both backends are read against.",
+        "",
+        "Where the two backends chunked different numbers of documents, they were not "
+        "answering the same question: a chunked document is extracted in fragments that "
+        "no single call saw together (§5.3). That is the honest form of the "
+        "provider-agnostic claim — the pipeline runs everywhere, and the cost of running "
+        "it on a small context window is this row plus the scores above it.",
         "",
         "Per-backend detail, including per-document scores and failure reasons, is in "
         "the individual scorecards in this directory.",

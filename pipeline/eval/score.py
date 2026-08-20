@@ -146,6 +146,19 @@ class SystemScore:
         return rate(unresolved, emitted)
 
     @property
+    def chunked_documents(self) -> int:
+        """Documents that exceeded the context budget (§5.3). The number that
+        explains most of the gap in a cross-backend comparison."""
+        return sum(1 for p in self.predictions if p.chunks > 1)
+
+    @property
+    def failed_chunks(self) -> int:
+        """Chunks that produced nothing on a document that still merged. Unlike
+        a whole-document failure this does not show up as a status, so it would
+        otherwise be invisible under-extraction."""
+        return sum(p.failed_chunks for p in self.predictions)
+
+    @property
     def off_vocabulary_sectors(self) -> int:
         return sum(p.sectors_off_vocabulary for p in self.predictions)
 

@@ -18,11 +18,7 @@ import logging
 from dotenv import load_dotenv
 
 from enrich.actors import ActorIndex
-from enrich.client import (
-    TRUNCATION_STOP_REASONS,
-    build_completion_client,
-    get_embedding_client,
-)
+from enrich.client import build_completion_client, get_embedding_client
 from enrich.config import REPORT_EMBEDDING_DIM, ConfigError, resolve_completion
 from enrich.db import (
     enqueue_actor_for_review,
@@ -36,7 +32,8 @@ from enrich.db import (
     load_technique_ids,
     load_threat_actors,
 )
-from enrich.extract import run_extraction
+from enrich.chunk import BudgetTooSmall, document_budget_chars
+from enrich.extract import extract_document
 from enrich.prompt import prompt_version, render_user_prompt, system_prompt
 from enrich.techniques import TechniqueIndex
 from enrich.validate import validate_extraction
@@ -47,9 +44,16 @@ log = logging.getLogger("enrich.run")
 
 
 def _record_attempts(engine, document_id, model, version, outcome):
-    """Persist one enrichment_run row per attempt; return the id of the ok run."""
+    """Persist one enrichment_run row per attempt; return the id of an ok run.
+
+    On a chunked document (§5.3) that is one row per chunk per attempt, tagged
+    with chunk_index. The returned id is the *first* successful run, which is
+    what report.enrichment_run_id points at: the column is a single FK, so a
+    merged extraction from five chunks has to name one of them, and the first
+    is the only choice that is stable across re-runs.
+    """
     ok_run_id = None
-    for attempt in outcome.attempts:
+    for chunk_index, attempt in outcome.attempts:
         with engine.begin() as conn:
             run_id = insert_enrichment_run(
                 conn,
@@ -64,8 +68,9 @@ def _record_attempts(engine, document_id, model, version, outcome):
                 # unparseable case as a JSON string so nothing is lost.
                 raw_response=json.dumps(attempt.raw_response) if attempt.raw_response else None,
                 attempt=attempt.attempt,
+                chunk_index=chunk_index,
             )
-        if attempt.status == "ok":
+        if attempt.status == "ok" and ok_run_id is None:
             ok_run_id = run_id
     return ok_run_id
 
@@ -161,34 +166,53 @@ def _persist(engine, *, document_id, run_id, validated, embedder):
 
 
 def enrich_document(
-    engine, client, row, *, technique_index, actor_index, version, embedder=None
+    engine, client, row, *, technique_index, actor_index, version, max_input_tokens,
+    embedder=None,
 ) -> bool:
     document_id = row["id"]
     title = row["title"] or str(document_id)
 
-    outcome = run_extraction(
-        client, system_prompt(), render_user_prompt(row["clean_text"])
+    outcome = extract_document(
+        client,
+        system_prompt(),
+        render_user_prompt,
+        row["clean_text"],
+        max_input_tokens=max_input_tokens,
     )
     run_id = _record_attempts(engine, document_id, client.model, version, outcome)
 
-    if outcome.final.stop_reason in TRUNCATION_STOP_REASONS:
+    if outcome.was_chunked:
+        # Worth saying out loud: a chunked document is a degraded extraction
+        # (§5.3) -- no call saw the whole text, so cross-chunk reasoning and a
+        # single coherent summary are both gone.
+        log.info("%r exceeded the context budget; extracted in %d chunks", title, outcome.chunk_count)
+    for failed in outcome.failed_chunks:
+        log.warning(
+            "chunk %s of %r produced nothing: %s (%s)",
+            failed.index,
+            title,
+            failed.outcome.final.status,
+            (failed.outcome.final.error or "")[:200],
+        )
+
+    if outcome.truncated:
         # Not a guardrail branch -- a truncated response fails the JSON parse
         # like any other malformed output. It just has a different fix
         # (raise max_tokens) and is worth naming in the log.
-        log.warning("response for %r was truncated (stop_reason=%s)", title, outcome.final.stop_reason)
+        log.warning("a response for %r was truncated (raise max_tokens)", title)
 
     if not outcome.succeeded:
         log.warning(
-            "extraction failed for %r after %d attempt(s): %s (%s)",
+            "extraction failed for %r after %d call(s): %s (%s)",
             title,
             len(outcome.attempts),
-            outcome.final.status,
-            (outcome.final.error or "")[:200],
+            outcome.status,
+            (outcome.error or "")[:200],
         )
         return False
 
     validated = validate_extraction(
-        outcome.final.extraction,
+        outcome.extraction,
         clean_text=row["clean_text"],
         technique_index=technique_index,
         actor_index=actor_index,
@@ -273,6 +297,17 @@ def main() -> None:
     embedder = _resolve_embedder(completion_config)
     version = prompt_version()
 
+    # §5.4 "fail at config time, not mid-run": the budget depends only on
+    # config and the prompt files, so a value too small to fit any document is
+    # knowable now rather than on the first document of a long batch.
+    try:
+        document_budget_chars(
+            completion_config.max_input_tokens,
+            prompt_overhead_chars=len(system_prompt()) + len(render_user_prompt("")),
+        )
+    except BudgetTooSmall as exc:
+        raise SystemExit(f"context budget: {exc}") from exc
+
     with engine.begin() as conn:
         technique_index = TechniqueIndex(load_technique_ids(conn))
         actor_index = ActorIndex(load_threat_actors(conn))
@@ -285,12 +320,13 @@ def main() -> None:
         )
 
     log.info(
-        "provider=%s model=%s embedding=%s prompt_version=%s techniques=%d "
-        "actor_names=%d documents=%d",
+        "provider=%s model=%s embedding=%s prompt_version=%s max_input_tokens=%d "
+        "techniques=%d actor_names=%d documents=%d",
         completion_config.provider,
         client.model,
         embedder.model if embedder else "disabled",
         version,
+        completion_config.max_input_tokens,
         len(technique_index),
         len(actor_index),
         len(documents),
@@ -306,6 +342,7 @@ def main() -> None:
                 technique_index=technique_index,
                 actor_index=actor_index,
                 version=version,
+                max_input_tokens=completion_config.max_input_tokens,
                 embedder=embedder,
             ):
                 enriched += 1

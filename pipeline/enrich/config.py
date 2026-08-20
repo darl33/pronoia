@@ -31,6 +31,18 @@ PROBE_TIMEOUT_SECONDS = 1.5
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 
+# Context budget (§5.3), in tokens of *input*, per backend. Chunking above this
+# is what makes "swap the env var to a local model" degrade instead of failing
+# on the richest documents. Overridable with MAX_INPUT_TOKENS.
+#
+# The local default is deliberately small: the OpenAI-compatible adapter
+# reaches runtimes whose context window we cannot discover from here (/v1/models
+# does not report it), and an 8k model is the common case an unconfigured
+# reviewer has running. Chunking a document that would have fit costs an extra
+# call; not chunking one that doesn't fit loses the document entirely.
+LOCAL_MAX_INPUT_TOKENS = 6_000
+HOSTED_MAX_INPUT_TOKENS = 100_000
+
 
 class ConfigError(Exception):
     """Config could not be resolved.
@@ -55,6 +67,10 @@ class Provider:
     # True for the one provider we do not reach through the OpenAI-compatible
     # adapter. Anthropic's Messages API is not /v1/chat/completions.
     native_sdk: bool = False
+    # Well below each vendor's real window: the budget is an estimate made from
+    # a character heuristic (enrich/chunk.py), and the cost of being wrong is a
+    # hard failure at the top of the range and one extra call near it.
+    max_input_tokens: int = HOSTED_MAX_INPUT_TOKENS
 
 
 # Starting points, all overridden by LLM_MODEL. The point is that a bare key is
@@ -65,6 +81,7 @@ ANTHROPIC = Provider(
     default_model=DEFAULT_ANTHROPIC_MODEL,
     default_embedding_model=None,
     native_sdk=True,
+    max_input_tokens=150_000,
 )
 OPENAI = Provider(
     name="openai",
@@ -117,6 +134,9 @@ class CompletionConfig:
     api_key: str | None
     native_sdk: bool
     source: str  # how this was resolved, in words, for `pronoia doctor`
+    # Documents longer than this are chunked (§5.3). Defaults to the
+    # conservative local figure so a config built by hand degrades safely.
+    max_input_tokens: int = LOCAL_MAX_INPUT_TOKENS
 
 
 @dataclass(frozen=True)
@@ -153,6 +173,27 @@ def match_key_prefix(key: str) -> Provider | None:
         if key.startswith(prefix):
             return provider
     return None
+
+
+def resolve_max_input_tokens(default: int) -> int:
+    """MAX_INPUT_TOKENS if set and sane, else the backend's own default.
+
+    A bad value is ignored with a warning rather than raising: this is a
+    tuning knob, and a typo in it should not stop a batch that would otherwise
+    run correctly on the default.
+    """
+    override = _env("MAX_INPUT_TOKENS")
+    if override is None:
+        return default
+    try:
+        value = int(override)
+    except ValueError:
+        log.warning("MAX_INPUT_TOKENS=%r is not an integer; using %d", override, default)
+        return default
+    if value <= 0:
+        log.warning("MAX_INPUT_TOKENS=%d is not positive; using %d", value, default)
+        return default
+    return value
 
 
 # ---------- discovery ----------
@@ -244,6 +285,7 @@ def resolve_completion() -> CompletionConfig:
                 api_key=key,
                 native_sdk=provider.native_sdk and base_url_override is None,
                 source=f"LLM_API_KEY prefix -> {provider.name}",
+                max_input_tokens=resolve_max_input_tokens(provider.max_input_tokens),
             )
 
         if base_url_override:
@@ -254,6 +296,7 @@ def resolve_completion() -> CompletionConfig:
                 api_key=key,
                 native_sdk=False,
                 source="LLM_BASE_URL (key prefix not recognized)",
+                max_input_tokens=resolve_max_input_tokens(LOCAL_MAX_INPUT_TOKENS),
             )
 
         known = ", ".join(prefix for prefix, _ in KEY_PREFIXES)
@@ -272,6 +315,7 @@ def resolve_completion() -> CompletionConfig:
             api_key=None,
             native_sdk=False,
             source="LLM_BASE_URL (no key)",
+            max_input_tokens=resolve_max_input_tokens(LOCAL_MAX_INPUT_TOKENS),
         )
 
     local = discover_local()
@@ -292,6 +336,7 @@ def resolve_completion() -> CompletionConfig:
         api_key=None,
         native_sdk=False,
         source=f"local discovery at {base_url}",
+        max_input_tokens=resolve_max_input_tokens(LOCAL_MAX_INPUT_TOKENS),
     )
 
 

@@ -1,6 +1,6 @@
 """Running the live pipeline over one gold fixture (DESIGN.md §7).
 
-This module calls `run_extraction` and `validate_extraction` directly rather
+This module calls `extract_document` and `validate_extraction` directly rather
 than reimplementing them. That is the whole point of the harness: §7 says it
 "executes the live pipeline against gold-set documents", so what is measured
 has to be the shipped extraction path with the shipped guardrails, right down
@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from enrich.evidence import EvidenceIndex
-from enrich.extract import run_extraction
+from enrich.extract import extract_document
 from enrich.prompt import render_user_prompt, system_prompt
 from enrich.validate import validate_extraction
 from eval.gold import GoldFixture
@@ -60,6 +60,11 @@ class Prediction:
     input_tokens: int | None = None
     output_tokens: int | None = None
     attempts: int = 0
+    # Context budget (§5.3). `chunks` > 1 means no single call saw the whole
+    # document, which is the headline difference between backends in the §7
+    # cross-backend run and has to be visible next to the scores it explains.
+    chunks: int = 1
+    failed_chunks: int = 0
 
     @property
     def succeeded(self) -> bool:
@@ -106,6 +111,7 @@ def predict_llm(
     technique_index,
     actor_index,
     canonical_names: dict,
+    max_input_tokens: int,
 ) -> Prediction:
     """Run the extraction contract + all §5.2 guardrails over one document.
 
@@ -115,26 +121,33 @@ def predict_llm(
     and "APT44" become one row, and an eval that compared raw strings would
     score the system as wrong for succeeding at that.
     """
-    outcome = run_extraction(client, system_prompt(), render_user_prompt(fixture.text))
-    final = outcome.final
+    outcome = extract_document(
+        client,
+        system_prompt(),
+        render_user_prompt,
+        fixture.text,
+        max_input_tokens=max_input_tokens,
+    )
 
     prediction = Prediction(
         fixture_id=fixture.id,
         system="llm",
-        status=final.status,
-        error=final.error,
-        input_tokens=final.input_tokens,
-        output_tokens=final.output_tokens,
+        status=outcome.status,
+        error=outcome.error,
+        input_tokens=outcome.input_tokens,
+        output_tokens=outcome.output_tokens,
         attempts=len(outcome.attempts),
+        chunks=outcome.chunk_count,
+        failed_chunks=len(outcome.failed_chunks),
     )
 
-    if not outcome.succeeded or final.extraction is None:
+    if not outcome.succeeded:
         # Empty sets, deliberately. The pipeline would have written no rows for
         # this document, so every gold item is a false negative -- see the
         # third convention in metrics.py.
         return prediction
 
-    extraction = final.extraction
+    extraction = outcome.extraction
     validated = validate_extraction(
         extraction,
         clean_text=fixture.text,

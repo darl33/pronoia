@@ -62,6 +62,7 @@ enrichment_run = Table(
     Column("status", Text, nullable=False),
     Column("raw_response", JSONB),
     Column("attempt", Integer, nullable=False),
+    Column("chunk_index", Integer),
 )
 
 # REPORT_EMBEDDING_DIM must equal the VECTOR(n) in the migration -- see the
@@ -196,11 +197,15 @@ def list_documents_needing_enrichment(conn, limit: int | None = None):
 
 def insert_enrichment_run(
     conn, *, document_id, model, prompt_version, started_at, finished_at, status,
-    raw_response, attempt,
+    raw_response, attempt, chunk_index=None,
 ):
     """One row per attempt -- a failed attempt stays in the table as the audit
     trail (DESIGN.md §5.2 guardrail 1: "Two failures = give up, keep the audit
-    trail")."""
+    trail").
+
+    `chunk_index` is NULL unless the document exceeded the context budget and
+    was split (§5.3), in which case one document produces several rows that
+    would otherwise all read as attempt 1."""
     run_id = uuid7()
     conn.execute(
         enrichment_run.insert().values(
@@ -213,6 +218,7 @@ def insert_enrichment_run(
             status=status,
             raw_response=raw_response,
             attempt=attempt,
+            chunk_index=chunk_index,
         )
     )
     return run_id

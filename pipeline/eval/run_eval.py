@@ -37,15 +37,18 @@ from dotenv import load_dotenv
 from enrich.actors import ActorIndex
 from enrich.client import build_completion_client
 from enrich.config import (
+    LOCAL_MAX_INPUT_TOKENS,
     OPENAI_COMPATIBLE,
     CompletionConfig,
     ConfigError,
     discover_local,
     probe_openai_compatible,
     resolve_completion,
+    resolve_max_input_tokens,
 )
+from enrich.chunk import BudgetTooSmall, document_budget_chars
 from enrich.db import load_technique_ids, load_threat_actors
-from enrich.prompt import prompt_version
+from enrich.prompt import prompt_version, render_user_prompt, system_prompt
 from enrich.techniques import TechniqueIndex
 from eval.baseline import KeywordBaseline
 from eval.gold import GOLD_DIR, GoldSet, load_gold_set
@@ -118,6 +121,10 @@ def resolve_local_backend() -> CompletionConfig:
         api_key=api_key,
         native_sdk=False,
         source=source,
+        # The conservative local budget unless MAX_INPUT_TOKENS says otherwise:
+        # /v1/models does not report a context window, so it cannot be
+        # discovered, and guessing high turns a chunked run into a failed one.
+        max_input_tokens=resolve_max_input_tokens(LOCAL_MAX_INPUT_TOKENS),
     )
 
 
@@ -143,12 +150,26 @@ def load_reference_data(engine):
     return technique_index, actor_index, canonical_names, actor_rows
 
 
+def check_budget(config: CompletionConfig) -> None:
+    """§5.4: a budget too small to fit any document is a config error, and it
+    is knowable before the first model call rather than during it."""
+    try:
+        document_budget_chars(
+            config.max_input_tokens,
+            prompt_overhead_chars=len(system_prompt()) + len(render_user_prompt("")),
+        )
+    except BudgetTooSmall as exc:
+        raise SystemExit(f"backend {config.provider!r}: {exc}") from exc
+
+
 def run_llm_backend(name: str, config: CompletionConfig, fixtures, *,
                     technique_index, actor_index, canonical_names):
+    check_budget(config)
     client = build_completion_client(config)
     log.info(
-        "backend=%s provider=%s model=%s endpoint=%s (%s)",
-        name, config.provider, config.model, config.base_url, config.source,
+        "backend=%s provider=%s model=%s endpoint=%s max_input_tokens=%d (%s)",
+        name, config.provider, config.model, config.base_url,
+        config.max_input_tokens, config.source,
     )
 
     predictions = []
@@ -159,6 +180,7 @@ def run_llm_backend(name: str, config: CompletionConfig, fixtures, *,
             technique_index=technique_index,
             actor_index=actor_index,
             canonical_names=canonical_names,
+            max_input_tokens=config.max_input_tokens,
         )
         if not prediction.succeeded:
             log.warning(
@@ -259,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
             git_commit=git_commit(),
             gold_documents=len(fixtures),
             placeholders=len(gold_set.placeholders),
+            max_input_tokens=config.max_input_tokens,
         )
         path = write(
             scorecard_path(metadata, args.out_dir),

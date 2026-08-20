@@ -90,6 +90,7 @@ def _metadata() -> RunMetadata:
         git_commit=git_commit(),
         gold_documents=2,
         placeholders=3,
+        max_input_tokens=150_000,
     )
 
 

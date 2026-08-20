@@ -150,6 +150,19 @@ def _check_completions() -> tuple[list[Check], object | None]:
         Check("completions", OK, f"{config.provider} / {config.model} via {config.base_url}", config.source)
     ]
 
+    # The context budget is worth printing even though nothing is wrong with
+    # it: it is the one setting that silently changes *how* a document is
+    # extracted (§5.3), and a reviewer wondering why a long report came back
+    # thin should not have to read the source to find the number.
+    checks.append(
+        Check(
+            "  context budget",
+            OK,
+            f"{config.max_input_tokens:,} input tokens; longer documents are chunked",
+            "set MAX_INPUT_TOKENS to match your model's window",
+        )
+    )
+
     client = build_completion_client(config)
     try:
         checks.append(Check("  reachability", OK, client.ping()))

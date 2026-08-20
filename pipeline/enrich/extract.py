@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
+from enrich.chunk import document_budget_chars, merge_extractions, split_text
 from enrich.client import DEFAULT_MAX_TOKENS, CompletionClient, EnrichmentError
 from enrich.contract import Extraction
 
@@ -150,3 +152,143 @@ def run_extraction(
         prompt = _retry_prompt(user_prompt, status, error or "")
 
     return outcome
+
+
+# ---------- document level: the context budget (DESIGN.md §5.3) ----------
+
+
+@dataclass
+class ChunkOutcome:
+    outcome: ExtractionOutcome
+    # None when the document fit in one call. NULL in enrichment_run then means
+    # "not chunked", which is the common case and shouldn't look like chunk 0.
+    index: int | None
+
+
+@dataclass
+class DocumentOutcome:
+    """One document's result, however many model calls it took.
+
+    A partially-failed chunked document still produces an extraction from the
+    chunks that worked. That is the degradation §5.3 asks for -- the
+    alternative is discarding four good chunks because the fifth returned bad
+    JSON -- but it under-extracts silently unless someone says so, which is
+    what `failed_chunks` is for. It is logged by the pipeline and reported per
+    backend in the §7 scorecard.
+    """
+
+    chunks: list[ChunkOutcome] = field(default_factory=list)
+    extraction: Extraction | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.extraction is not None
+
+    @property
+    def chunk_count(self) -> int:
+        return len(self.chunks)
+
+    @property
+    def was_chunked(self) -> bool:
+        return self.chunk_count > 1
+
+    @property
+    def failed_chunks(self) -> list[ChunkOutcome]:
+        return [chunk for chunk in self.chunks if not chunk.outcome.succeeded]
+
+    @property
+    def attempts(self) -> list[tuple[int | None, Attempt]]:
+        """Every model call made for this document, tagged with its chunk.
+
+        Flattened for the audit trail: guardrail 1 requires one enrichment_run
+        row per attempt, and chunking multiplies attempts rather than replacing
+        them.
+        """
+        return [
+            (chunk.index, attempt) for chunk in self.chunks for attempt in chunk.outcome.attempts
+        ]
+
+    @property
+    def status(self) -> str:
+        """'ok' if anything came back usable, else the last failure's status."""
+        if self.succeeded:
+            return "ok"
+        return self.chunks[-1].outcome.final.status if self.chunks else "api_error"
+
+    @property
+    def error(self) -> str | None:
+        for chunk in reversed(self.chunks):
+            if chunk.outcome.final.error:
+                return chunk.outcome.final.error
+        return None
+
+    @property
+    def input_tokens(self) -> int | None:
+        return _sum_tokens(self.attempts, "input_tokens")
+
+    @property
+    def output_tokens(self) -> int | None:
+        return _sum_tokens(self.attempts, "output_tokens")
+
+    @property
+    def truncated(self) -> bool:
+        from enrich.client import TRUNCATION_STOP_REASONS
+
+        return any(
+            chunk.outcome.final.stop_reason in TRUNCATION_STOP_REASONS for chunk in self.chunks
+        )
+
+
+def _sum_tokens(attempts, attribute: str) -> int | None:
+    """None, not 0, when no attempt reported usage -- some OpenAI-compatible
+    runtimes omit the usage block entirely, and reporting a cost of zero for
+    a run that cost something is worse than reporting nothing."""
+    values = [getattr(attempt, attribute) for _, attempt in attempts]
+    known = [value for value in values if value is not None]
+    return sum(known) if known else None
+
+
+def extract_document(
+    client: CompletionClient,
+    system: str,
+    render_user: Callable[[str], str],
+    clean_text: str,
+    *,
+    max_input_tokens: int,
+    max_attempts: int = MAX_ATTEMPTS,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> DocumentOutcome:
+    """Extract one document, chunking it first if it exceeds the budget.
+
+    `render_user` is passed as a callable rather than a rendered string because
+    each chunk needs its own enclosure -- and rendering the template with an
+    empty document measures the prompt overhead exactly, instead of estimating
+    it. Keeping the prompt files out of this module is deliberate: guardrail 1
+    stays portable across prompts and providers.
+
+    On a hosted backend this is a single call and behaves exactly as
+    `run_extraction` did, which is the property that matters -- the primary
+    backend's §7 scores must not move because a fallback path was added for a
+    different backend.
+    """
+    budget = document_budget_chars(
+        max_input_tokens, prompt_overhead_chars=len(system) + len(render_user(""))
+    )
+    chunks = split_text(clean_text, budget)
+
+    document = DocumentOutcome()
+    extractions: list[Extraction] = []
+
+    for position, chunk in enumerate(chunks):
+        outcome = run_extraction(
+            client, system, render_user(chunk), max_attempts=max_attempts, max_tokens=max_tokens
+        )
+        document.chunks.append(
+            ChunkOutcome(outcome=outcome, index=position if len(chunks) > 1 else None)
+        )
+        if outcome.succeeded and outcome.final.extraction is not None:
+            extractions.append(outcome.final.extraction)
+
+    if extractions:
+        document.extraction = merge_extractions(extractions)
+    return document

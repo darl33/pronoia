@@ -19,6 +19,10 @@ IocKind = Literal["ipv4", "ipv6", "domain", "url", "sha256", "md5", "email"]
 
 _ISO_3166_ALPHA2 = re.compile(r"^[A-Z]{2}$")
 
+# Named because chunked documents merge summaries and have to respect the same
+# cap the contract enforces (enrich/chunk.py).
+SUMMARY_MAX_CHARS = 600
+
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -67,7 +71,7 @@ class Ioc(_Strict):
 
 
 class Extraction(_Strict):
-    summary: str = Field(min_length=1, max_length=600)
+    summary: str = Field(min_length=1, max_length=SUMMARY_MAX_CHARS)
     report_date: date | None = None
     confidence: Literal["low", "medium", "high"]
     actors: list[ActorMention] = Field(default_factory=list)
