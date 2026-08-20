@@ -65,6 +65,13 @@ If ingestion ever became event-driven, the upgrade path is a message queue (NATS
 
 **Rate limits and etiquette:** honor robots.txt, per-domain politeness delays, conditional GET (ETag/Last-Modified), identify with an honest User-Agent. This belongs in the security write-up: responsible collection is part of the CTI discipline.
 
+Two request headers were settled empirically against these sources rather than by convention, and both are pinned by tests because reverting either silently breaks one source:
+
+- **`Accept-Encoding: gzip`**, overriding httpx's default of `gzip, deflate`. CISA's edge returns 403 to any request advertising `deflate`. Isolated header by header: the same User-Agent gets 403 with `gzip, deflate` and 200 with `gzip`, across CISA, ACSC, Talos and raw.githubusercontent alike. Narrowing to one encoding also slightly shrinks the §6 decompression-bomb surface.
+- **A bare `Pronoia-Ingest/0.1` User-Agent**, with no `(+https://...)` bot-announcement suffix, because ACSC's edge resets the connection (HTTP/2 INTERNAL_ERROR) for any UA carrying one — including a genuine Googlebot string.
+
+The honest-identification principle survives both: the agent still names itself and its version, which is what the etiquette is actually for.
+
 ---
 
 ## 4. Database Schema (PostgreSQL 16 + pgvector)
@@ -83,8 +90,17 @@ CREATE TABLE feed (
     etag          TEXT,
     last_modified TEXT,
     last_polled_at TIMESTAMPTZ,
-    enabled       BOOLEAN NOT NULL DEFAULT true
+    enabled       BOOLEAN NOT NULL DEFAULT true,
+    fetch_articles BOOLEAN NOT NULL DEFAULT false  -- follow entry links (see below)
 );
+
+-- `fetch_articles` is per-feed and off by default. Some feeds publish the whole
+-- post in the entry (Talos ships ~11k characters in <content:encoded>) and some
+-- publish a one-line teaser (ACSC ships 85-300 characters, with the body behind
+-- the link). Extracting anything from a teaser is hopeless, so those feeds opt
+-- in to a second request per entry. Off by default because following links is
+-- both extra outbound traffic and extra SSRF surface: article fetches go
+-- through the same validated path as feed fetches, and are same-host only.
 
 CREATE TABLE raw_document (
     id            UUID PRIMARY KEY,
@@ -111,8 +127,16 @@ CREATE TABLE enrichment_run (
     status        TEXT NOT NULL CHECK (status IN
                     ('pending','ok','invalid_json','schema_fail','api_error')),
     raw_response  JSONB,                    -- full model output, kept for audit
-    attempt       INT NOT NULL DEFAULT 1
+    attempt       INT NOT NULL DEFAULT 1,
+    chunk_index   INT                       -- NULL unless the document was chunked (§5.3)
 );
+
+-- `chunk_index` exists because the context budget (§5.3) lets one document
+-- produce several model calls. Without it, a chunked document writes several
+-- rows that all read `attempt = 1`, and the audit trail guardrail 1 exists to
+-- provide becomes unreadable for exactly the documents most likely to fail: the
+-- long ones. NULL means the document fit in one call, which is the common case
+-- on a hosted backend and deliberately does not look like chunk 0.
 
 CREATE TABLE report (                       -- one validated extraction per document
     id            UUID PRIMARY KEY,
@@ -141,6 +165,21 @@ CREATE TABLE report_actor (
     attribution_confidence TEXT NOT NULL CHECK
                     (attribution_confidence IN ('suspected','likely','confirmed_by_source')),
     PRIMARY KEY (report_id, actor_id)
+);
+
+-- Required by §5.2 guardrail 4: an actor name the resolver cannot place goes
+-- here for a human, never silently into report_actor. `best_match_*` carry the
+-- closest candidate and its score so a reviewer sees what the near-miss was.
+CREATE TABLE actor_review_queue (
+    id            UUID PRIMARY KEY,
+    report_id     UUID NOT NULL REFERENCES report(id),
+    raw_name      TEXT NOT NULL,            -- the name as the model emitted it
+    attribution_confidence TEXT NOT NULL,
+    best_match_actor_id UUID REFERENCES threat_actor(id),
+    best_match_score DOUBLE PRECISION,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved      BOOLEAN NOT NULL DEFAULT false,
+    UNIQUE (report_id, raw_name)
 );
 
 CREATE TABLE attack_technique (             -- loaded from ATT&CK STIX bundle
@@ -237,6 +276,30 @@ Two implementations:
 
 **Context budget.** Vendor threat reports run long and model context varies by two orders of magnitude across the backends above (200k on a hosted frontier model, 8k on a small local one). The extraction path takes a configurable `MAX_INPUT_TOKENS` and chunks `clean_text` past that threshold, merging per-chunk extractions by union with dedup. Without this, "swap the env var to a local model" fails on exactly the richest documents rather than degrading.
 
+Five decisions inside that sentence, because each one is load-bearing:
+
+- **The budget defaults per backend and is overridable.** Anthropic 150k, other hosted providers 100k, anything reached through the OpenAI-compatible adapter 6k. `/v1/models` does not report a context window, so a local backend's real limit cannot be discovered; guessing high turns a working run into a failed one, while guessing low costs one extra call. `MAX_INPUT_TOKENS` overrides all of it, and the budget is validated once at startup rather than per document, per the §5.4 "fail at config time" rule.
+- **Token counts are estimated from characters**, at a deliberately low 3.5 chars/token, because no generic tokenizer exists for the runtimes the adapter reaches. Erring low over-estimates cost and yields chunks slightly too small, which is the harmless direction.
+- **Chunks are contiguous slices, never split-and-rejoined text.** This is what keeps guardrail 3 working: evidence quotes are checked against the whole `clean_text` afterwards, so a chunk that was not a literal substring would make the model's *honest* quotes unverifiable and drop them, silently destroying the technique field on exactly the long documents chunking exists to rescue.
+- **Breaks land on paragraph boundaries first**, then sentence, then word, then a hard cut. A technique is normally described within one paragraph, so an evidence sentence is almost never severed. There is deliberately **no overlap**: overlap pays for every boundary sentence twice on exactly the backends being chunked *because* they are small, and paragraph-level breaking already avoids the boundary it would insure against.
+- **Union with dedup covers the four list fields; the three scalars cannot be unioned, and each is a stated loss.** `summary` becomes a concatenation of per-chunk summaries truncated to the contract's cap — it is no longer an abstract of the document, because no call saw the document. `report_date` takes the first stated. `confidence` takes the *lowest*: a record assembled from fragments cannot honestly be more confident than its least confident fragment.
+
+A failed chunk does not discard the rest of the document; the surviving chunks still merge. That is the degradation this section asks for, but it is invisible under-extraction unless someone counts it, so failed chunks are logged by the pipeline and reported per backend in the §7 scorecard.
+
+**Chunking is a degradation path, not a feature.** The honest framing is that the pipeline *runs* everywhere, and §7's cross-backend scorecard reports what running it on a small context window costs.
+
+Five decisions inside that sentence, because each one is load-bearing:
+
+- **The budget defaults per backend, and is overridable.** Anthropic 150k, other hosted providers 100k, anything reached through the OpenAI-compatible adapter 6k. `/v1/models` does not report a context window, so a local backend's real limit cannot be discovered; guessing high turns a chunked run into a failed one, while guessing low costs one extra call. `MAX_INPUT_TOKENS` overrides all of it. The budget is validated once at startup, not per document, per the §5.4 "fail at config time" rule.
+- **Token counts are estimated from characters** at a deliberately low 3.5 chars/token, because no generic tokenizer exists for the runtimes the adapter reaches. Erring low over-estimates cost and produces chunks slightly too small, which is the harmless direction.
+- **Chunks are contiguous slices, never split-and-rejoined text.** This is what keeps guardrail 3 working: evidence quotes are checked against the whole `clean_text` afterwards, so a chunk that is not a literal substring would make the model's *honest* quotes unverifiable and drop them — silently destroying the technique field on the long documents chunking exists to rescue.
+- **Breaks land on paragraph boundaries first**, then sentence, then word, then a hard cut. A technique is normally described within one paragraph, so an evidence sentence is almost never severed. There is deliberately **no overlap** between chunks: overlap pays for every boundary sentence twice on exactly the backends being chunked *because* they are small, and paragraph-level breaking already avoids the boundary it would insure against.
+- **Union with dedup covers the four list fields. The three scalars cannot be unioned, and each is a stated loss.** `summary` becomes a concatenation of per-chunk summaries truncated to the contract's cap — it is no longer an abstract of the document, because no call saw the document. `report_date` takes the first stated. `confidence` takes the *lowest*: a record assembled from fragments cannot honestly be more confident than its least confident fragment.
+
+A chunk that fails does not discard the rest of the document — the surviving chunks still merge. That is the degradation this section asks for, but it is silent under-extraction unless someone counts it, so failed chunks are logged by the pipeline and reported per backend in the §7 scorecard.
+
+**Chunking is a degradation path, not a feature.** The honest framing for an interviewer is that the pipeline *runs* everywhere and the §7 cross-backend scorecard reports what running it on a small context window costs.
+
 **What this does and does not claim.** It claims: you can run the pipeline against a local or alternative model with one config change, and the system will not error on long documents. It does *not* claim quality transfers, which is an empirical question answered in §7, not an architectural one.
 
 No LLM framework in any of this; the whole abstraction is a protocol plus two small adapters.
@@ -312,6 +375,34 @@ The eval story differentiates this project more than any feature.
 - **Baseline:** a non-LLM baseline (regex for technique IDs explicitly cited in text + alias string matching for actors) to demonstrate the LLM's lift on *implicit* technique description. Cheap to build, makes the comparison honest.
 - **Cross-backend run (this is what makes the "BYO model" claim honest).** Run the full gold set against at least two completion backends: the hosted primary and one OpenAI-compatible local model via `LLM_BASE_URL` (§5.3). Commit both scorecards. This converts "provider-agnostic" from an architectural assertion into a measured one, and it is the more interesting artifact: an interviewer can ask "what did you lose going local?" and you have a number. Expect the local model to score materially worse on implicit technique extraction; that gap *is* the finding, not a failure. Practical benefit too: a reviewer who clones the repo can run the pipeline with no API key.
 - **Target:** >0.85 F1 on techniques at parent granularity **on the primary backend** before calling the pipeline done. No target is set for alternative backends; they are characterized, not gated. If the primary target is unreachable, the write-up analyzing *why* (which technique families the model confuses) is itself strong content.
+
+### 7.1 Measurement decisions
+
+Precision and recall over sets is arithmetic; what those sets *are* is the judgement, and every choice below changes the numbers. They are recorded here because a scorecard whose conventions live only in code cannot be defended in an interview.
+
+**What counts as a hit.**
+
+- **Actors are scored on resolved identity, not on the string the model wrote.** Guardrail 4 exists precisely so "Sandworm Team" and "APT44" become one row; an eval comparing raw strings would mark the system wrong for succeeding at that. Gold names are resolved through the same `ActorIndex`, so both sides are compared as the same entity.
+- **Unresolved actors are counted, not scored.** They go to the review queue and never reach `report_actor`, so they are not part of the system's output and cannot be false positives. The rate is reported separately, because a rising one is a reference-data problem rather than a model one.
+- **Targets are scored as two fields, country and sector, not as pairs.** A gold `(AU, water and sewerage)` against a predicted `(AU, null)` is one right answer and one omission; scoring the pair jointly would record it as a total miss on both. The country set is also the one `/correlate` consumes (§8).
+- **Sectors are compared against a controlled vocabulary** — the SOCI critical infrastructure sectors plus the non-SOCI sectors common in CTI reporting — with a synonym map for surface forms (`healthcare` → `health care`, `aviation` → `transport`). Anything outside it is left as-is and reported as off-vocabulary rather than silently coerced: a model answering "aerospace" is a vocabulary gap to fix in the prompt, not an error to bury.
+
+**Zero-denominator conventions**, which decide what a *failure* scores.
+
+- **A failed extraction is scored, not skipped.** No rows written means every gold item is a false negative — the dataset's real state. Skipping the document would report a system that crashes on hard documents as better than one that answers them badly.
+- **Predicting nothing where the gold set has answers scores 0, not a vacuous 1.0.** Only when both sides are empty is the result 1.0, and such documents are excluded from the macro mean, since that is a convention rather than a performance.
+- **An undefined rate reports as "n/a", never 0.0.** No quotes emitted is a different finding from every quote being invalid, and the baseline writes no quotes at all.
+- **Micro, not macro, is the headline**: tp/fp/fn are pooled across documents and divided once, so every gold item weighs the same. Macro is printed beside it, and a large gap means performance depends on document size.
+
+**The gold set carries one annotation the model never sees: `explicit_in_text`.** It marks whether a technique's ID is written in the document or only described in prose. The regex baseline can only reach the former, so the model's recall on the latter is its measured lift — the single most interesting line in the scorecard, and the reason §7 asks for a baseline at all. Precision is deliberately *not* reported on that subset: predictions carry no explicit/implicit label, so a false positive cannot be attributed to it.
+
+**Fixtures are `placeholder` until annotated.** An empty annotation is ambiguous — either the document genuinely names no actors, or nobody has read it yet — and scoring the second as the first reports a fabricated recall of 1.0.
+
+**The gold set is validated against the pipeline's own reference data at load time.** A gold technique ID absent from `attack_technique`, an actor name that resolves to nothing, a sector outside the vocabulary: each is reported as a *gold-set defect* and listed in the scorecard separately from anything the model did. These depress the score for reasons unrelated to the model, and the cheapest way to keep an eval honest is to make its own defects loud. `--baseline-only` runs this validation, and the whole metric path, without a single API call.
+
+**Both systems get the same guardrails.** The baseline's technique IDs pass through the same closed-world filter, so the comparison isolates extraction quality rather than rewarding the LLM path for post-processing the baseline lacks.
+
+**Scorecards are keyed `(backend, model, prompt_version)`** so re-running a configuration overwrites its own cell instead of accumulating near-duplicates, and each one records its timestamp and git commit — suffixed `-dirty` when the tree had uncommitted changes, because a scorecard that cannot be attributed to a commit is decoration.
 
 ---
 
@@ -392,6 +483,8 @@ Nobody evaluating this will run `docker-compose up`. The demo has to survive bei
 | 3-5 | Rust API | All endpoints, typed validation, rate limiting, SECURITY.md drafted |
 | 5-6 | Frontend views 1-2 | Report browser + correlation timeline against live API |
 | 6-7 | Case study + polish | Volt Typhoon write-up: ingest the public reporting, show the extracted ATT&CK profile and the correlation view around relevant events; README, architecture diagram, demo GIF |
+
+**Status as of 2026-08-19:** weeks 1-3 are done. Ingestion runs against four feeds with the §6 mitigations and article-body fetching; the enrichment pipeline runs end-to-end with all six §5.2 guardrails, the §5.3/§5.4 provider abstraction, and the context budget; the eval harness, gold set and first scorecard are committed. Outstanding within that scope: the gold set holds 2 of the target 30 annotated fixtures, and the cross-backend run is implemented but has not yet been executed against a live second backend.
 
 **Cut lines if September pressure hits, in order:** target map, GDELT integration, then pgvector semantic search.
 
