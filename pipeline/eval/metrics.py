@@ -1,21 +1,9 @@
-"""Set-based precision / recall / F1 (DESIGN.md §7).
+"""Set-based precision / recall / F1 (DESIGN.md §7). Hand-written and
+dependency-free.
 
-Hand-written and dependency-free: every metric here reduces to comparing two
-sets and counting the three ways they disagree, which a reader can check in a
-minute. An eval framework would add a vocabulary and hidden averaging defaults
-in exchange for nothing.
-
-Three conventions are load-bearing, so they are stated rather than inherited:
-
-1. **Zero denominators.** Predicting nothing scores 1.0 only when there was
-   nothing to find. Silence on a document with three actors is 0.0.
-2. **Micro is the headline.** Pooling tp/fp/fn before dividing gives every gold
-   item equal weight; macro is dominated by one-item documents. Macro is
-   reported beside it, since a large gap means performance depends on length.
-3. **A failed extraction is scored, not skipped.** No rows written means every
-   gold item is a false negative -- what the dataset would actually look like,
-   and the honest treatment for §7's cross-backend comparison, where a small
-   local model fails outright more often than it extracts badly.
+Three conventions are load-bearing -- zero denominators, micro over macro, and
+scoring failed extractions rather than skipping them. All three are stated in
+docs/DECISIONS.md#metric-conventions
 """
 
 from __future__ import annotations

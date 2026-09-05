@@ -513,6 +513,7 @@ pronoia/
 ├── db/                  # sqlx migrations (owned here, both sides consume)
 ├── docs/
 │   ├── DESIGN.md        # this file
+│   ├── DECISIONS.md     # implementation rationale; code comments point here
 │   ├── SECURITY.md      # threat model + mitigations, per §6
 │   └── CASE_STUDY.md    # Volt Typhoon analysis
 ├── docker-compose.yml   # postgres + pgvector, one-command dev env

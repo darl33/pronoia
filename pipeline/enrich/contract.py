@@ -1,9 +1,7 @@
-"""The extraction contract (DESIGN.md §5.1): the single JSON shape the model
-is asked to return, mirrored by the DB schema in §4.
+"""The extraction contract (DESIGN.md §5.1): the JSON shape the model must
+return, mirrored by the DB schema in §4.
 
-`extra="forbid"` is deliberate. A model that invents a field is a model that
-has drifted from the contract, and we would rather burn the one retry making
-that visible than silently accept a payload we don't understand.
+Why extra="forbid": docs/DECISIONS.md#extra-forbid
 """
 
 from __future__ import annotations
@@ -19,8 +17,7 @@ IocKind = Literal["ipv4", "ipv6", "domain", "url", "sha256", "md5", "email"]
 
 _ISO_3166_ALPHA2 = re.compile(r"^[A-Z]{2}$")
 
-# Named because chunked documents merge summaries and have to respect the same
-# cap the contract enforces (enrich/chunk.py).
+# Named because enrich/chunk.py truncates merged summaries to the same cap.
 SUMMARY_MAX_CHARS = 600
 
 

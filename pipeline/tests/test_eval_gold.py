@@ -57,16 +57,14 @@ def test_worked_example_annotation(indexes):
     assert fixture.technique_ids() == {
         "T1078", "T1133", "T1059.001", "T1082", "T1021.001", "T1090"
     }
-    # Exactly one technique is cited by ID in the prose; the rest is the
-    # implicit subset the baseline structurally cannot reach.
+    # One ID is cited in prose; the rest is the implicit subset.
     assert fixture.implicit_technique_ids() == fixture.technique_ids() - {"T1090"}
     assert fixture.countries() == {"AU"}
     assert fixture.sectors() == {"water and sewerage", "energy"}
 
 
 def test_explicit_flag_matches_the_document_text(indexes):
-    """The annotation that carries the whole baseline comparison: if a
-    technique is marked explicit, its ID has to actually be in the text."""
+    """If a technique is marked explicit, its ID must be in the text."""
     technique_index, actor_index = indexes
     gold_set = load_gold_set(
         GOLD_DIR, technique_index=technique_index, actor_index=actor_index
@@ -139,8 +137,7 @@ def test_unresolvable_actor_is_reported_as_a_gold_defect(tmp_path, indexes):
 
 
 def test_actor_alias_resolves(tmp_path, indexes):
-    """Gold may use an alias: both sides go through the same ActorIndex, which
-    is what guardrail 4 exists to make true."""
+    """Gold may use an alias -- both sides go through the same ActorIndex."""
     technique_index, actor_index = indexes
     _write_fixture(tmp_path, _payload("alias", actors=[{"name": "Carbon Spider"}]))
 

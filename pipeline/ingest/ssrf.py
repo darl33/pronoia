@@ -1,13 +1,7 @@
 """SSRF mitigation: DNS resolution, private/link-local/metadata range rejection,
-and DNS pinning so the validated address is the one actually connected to.
+and DNS pinning so the validated address is the one connected to (DESIGN.md §6).
 
-Threat model (DESIGN.md §6): a feed URL, or a redirect target it points to, could
-resolve to an internal address (RFC1918, loopback, link-local incl. the
-169.254.169.254 cloud metadata address). Checking the hostname string is not
-enough — the resolver must be re-run and re-validated on every hop, and the
-address used for the actual TCP connect must be the exact one that was
-validated (otherwise a second, attacker-controlled DNS answer at connect time
-reintroduces the hole: "DNS rebinding").
+Why pinning, not just validation: docs/DECISIONS.md#ssrf
 """
 
 from __future__ import annotations

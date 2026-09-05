@@ -1,13 +1,8 @@
 """Import the MITRE ATT&CK enterprise STIX bundle into attack_technique
 (DESIGN.md §3, §4).
 
-This table is the closed world guardrail 2 validates against, so what it
-contains is a security-relevant decision, not just a data load:
-
-  * revoked and deprecated techniques are skipped. Keeping them would let the
-    model cite retired IDs and have them pass the closed-world check.
-  * only `attack-pattern` objects carrying an ATT&CK `external_id` are used;
-    the bundle also contains groups, software, mitigations, and relationships.
+This table is the closed world guardrail 2 validates against, so what it holds
+is a security decision. Rationale: docs/DECISIONS.md#closed-world-contents
 """
 
 from __future__ import annotations
@@ -24,10 +19,8 @@ ATTACK_STIX_URL = (
     "master/enterprise-attack/enterprise-attack.json"
 )
 
-# The 10 MB transport cap in ingest.fetch is a decompression-bomb defense for
-# untrusted feed content (DESIGN.md §6). This is a pinned, known-good reference
-# bundle from a fixed URL that is legitimately ~55 MB, so the cap is raised for
-# this one call rather than weakened globally.
+# Raised for this one call rather than weakening the global decompression-bomb
+# cap: a pinned reference bundle from a fixed URL, legitimately ~55 MB.
 ATTACK_BUNDLE_MAX_BYTES = 96 * 1024 * 1024
 
 
@@ -64,12 +57,8 @@ def parse_attack_bundle(body: bytes) -> list[dict]:
             {
                 "technique_id": technique_id,
                 "name": obj.get("name") or technique_id,
-                # §4 models `tactic` as a single TEXT column, but ATT&CK
-                # techniques are genuinely many-to-many with tactics (T1055 is
-                # both defense-evasion and privilege-escalation). Joining
-                # preserves the data; dropping to one would silently lose it.
-                # Flagged as a schema question for §12 -- a report_technique
-                # tactic join table would be the real fix.
+                # §4 models `tactic` as one TEXT column but ATT&CK is many-to-many, so
+                # join rather than lose data. Known gap: docs/DECISIONS.md#closed-world-contents
                 "tactic": ",".join(sorted(set(tactics))),
             }
         )

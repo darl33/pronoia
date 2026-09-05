@@ -34,8 +34,7 @@ def baseline():
 
 
 def test_finds_only_technique_ids_written_in_the_document(baseline, fixtures):
-    """The defining limitation. 0001 describes six techniques and writes one
-    ID; the baseline gets that one and nothing else."""
+    """The defining limitation: 0001 describes six, writes one ID."""
     fixture = fixtures["0001-volt-typhoon-utilities"]
     prediction = baseline.predict(fixture)
 
@@ -46,8 +45,7 @@ def test_finds_only_technique_ids_written_in_the_document(baseline, fixtures):
 
 
 def test_recovers_a_published_attack_table(baseline, fixtures):
-    """And the other shape: an advisory that publishes its own ATT&CK table
-    hands the baseline three of five techniques for free."""
+    """The other shape: a published ATT&CK table hands over three of five."""
     prediction = baseline.predict(fixtures["0002-fin7-health-ransomware"])
     assert prediction.techniques == {"T1190", "T1486", "T1567.002"}
 
@@ -60,8 +58,7 @@ def test_implicit_techniques_are_structurally_unreachable(baseline, fixtures):
 
 
 def test_closed_world_filter_applies_to_the_baseline_too(fixtures):
-    """Both systems get guardrail 2, so the comparison isolates extraction
-    quality rather than rewarding the LLM for post-processing."""
+    """Both systems get guardrail 2, so the comparison isolates extraction."""
     narrow = KeywordBaseline(ACTOR_ROWS, TechniqueIndex({"T1090"}))
     prediction = narrow.predict(fixtures["0002-fin7-health-ransomware"])
 
@@ -70,8 +67,7 @@ def test_closed_world_filter_applies_to_the_baseline_too(fixtures):
 
 
 def test_resolves_matched_names_to_canonical_names(baseline, fixtures):
-    """Alias matching has to land in the same vocabulary the LLM path reports
-    in, or the two systems are scored against different gold sets."""
+    """Both systems must answer in one vocabulary."""
     assert baseline.predict(fixtures["0001-volt-typhoon-utilities"]).actors == {"Volt Typhoon"}
     assert baseline.predict(fixtures["0002-fin7-health-ransomware"]).actors == {"FIN7"}
 
@@ -85,9 +81,7 @@ def test_alias_in_text_resolves_to_the_canonical_name(baseline):
 
 
 def test_cannot_tell_a_victim_from_relay_infrastructure(baseline, fixtures):
-    """The precision failure §7 predicts. 0001's gold targets are AU only; NZ
-    appears solely as the location of relay infrastructure, and the baseline
-    has no way to know the difference."""
+    """0001's gold is AU only; NZ is relay infrastructure, not a victim."""
     fixture = fixtures["0001-volt-typhoon-utilities"]
     prediction = baseline.predict(fixture)
 
@@ -100,9 +94,7 @@ def test_cannot_tell_a_victim_from_relay_infrastructure(baseline, fixtures):
 
 
 def test_lowercase_us_is_not_a_country(baseline):
-    """The abbreviation table is case-sensitive on purpose: a case-insensitive
-    'US' matches the pronoun and would put a country on nearly every
-    document."""
+    """Case-sensitive on purpose: folded "US" also matches the pronoun."""
     class _Fixture:
         id = "synthetic"
         text = "The vendor told us that the campaign continued for several months."

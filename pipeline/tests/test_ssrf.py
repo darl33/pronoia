@@ -79,8 +79,7 @@ def test_dns_rebinding_is_blocked_by_pinning(monkeypatch):
         _, _, _, _, sockaddr = infos[0]
         assert sockaddr[0] == PUBLIC_IP  # pinned, not the rebound private IP
 
-    # Outside the pin, resolution goes back to (in this test, still faked)
-    # normal behavior -- i.e. the patch is properly scoped and reverted.
+    # Outside the pin, resolution reverts: the patch is properly scoped.
     infos = socket.getaddrinfo(hostname, port)
     assert infos[0][4][0] == "10.0.0.1"
 

@@ -167,8 +167,7 @@ def test_openai_key_also_configures_embeddings(monkeypatch):
 
     assert embedding is not None
     assert embedding.model == cfg.OPENAI.default_embedding_model
-    # text-embedding-3-* honour `dimensions`, so ask for the width the schema
-    # already has instead of degrading against a 1536-wide default.
+    # text-embedding-3-* honour `dimensions`, so ask for the schema's width.
     assert embedding.request_dimension == cfg.REPORT_EMBEDDING_DIM
 
 
@@ -205,9 +204,7 @@ def test_hosted_backend_gets_the_large_budgets(monkeypatch):
 
 
 def test_openai_compatible_backend_gets_the_conservative_pair(monkeypatch):
-    """The pair has to fit one window: an 8k local model cannot serve 6k of
-    input and 16k of output, and asking for it is a hard error on vLLM and a
-    silent clamp on Ollama."""
+    """The pair has to fit one window (docs/DECISIONS.md#context-budget)."""
     monkeypatch.setenv("LLM_BASE_URL", "http://localhost:8000/v1")
     monkeypatch.setenv("LLM_MODEL", "qwen3:8b")
     config = cfg.resolve_completion()
@@ -228,8 +225,7 @@ def test_both_budgets_are_overridable(monkeypatch):
 
 @pytest.mark.parametrize("bad", ["not-a-number", "0", "-1"])
 def test_a_bad_budget_override_warns_and_falls_back(monkeypatch, bad):
-    """A typo in a tuning knob must not stop a batch that runs fine on the
-    default."""
+    """A typo in a tuning knob must not stop an otherwise fine batch."""
     monkeypatch.setenv("LLM_API_KEY", "sk-ant-api03-xxxx")
     monkeypatch.setenv("MAX_OUTPUT_TOKENS", bad)
 

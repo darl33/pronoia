@@ -1,7 +1,5 @@
 """Ingestion entrypoint: poll every enabled feed that is due, store new
-documents, update poll state. Intended to be invoked periodically by cron
-(DESIGN.md §2 lists "cron / APScheduler" as equally valid; a cron-invoked
-script needs no extra long-running dependency, so that's what this is).
+documents, update poll state. Invoked periodically by cron.
 
     uv run python -m ingest.run
 """
@@ -89,14 +87,12 @@ def poll_feed(conn, row) -> tuple[int, int]:
     stored = deduped = 0
     fetched_bodies = 0
     for doc in docs:
-        # Hash the feed entry, before any article body replaces it. Hashing the
-        # fetched page instead would tie identity to the publisher's template,
-        # so a rotating banner or build-id comment would produce a new
-        # raw_document every poll.
+        # Hash the feed entry, not the fetched page: page identity would follow
+        # the publisher's template (docs/DECISIONS.md#dedup-hash).
         h = content_hash(doc.raw_html or doc.clean_text or "")
 
-        # Skip the fetch for entries we already have -- the insert would dedup
-        # them anyway, but only after re-requesting every article, every poll.
+        # The insert would dedup anyway, but only after re-requesting every
+        # article on every poll.
         already_stored = raw_document_exists(conn, feed_id=row["id"], content_hash=h)
 
         if row["fetch_articles"] and not already_stored and enrich_document(doc, row["url"]):

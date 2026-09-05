@@ -1,19 +1,10 @@
 """Provider abstraction (DESIGN.md §5.3): two slots, not one.
 
-Slot 1 is `CompletionClient`, with two implementations and deliberately no
-more: `AnthropicClient` (the §7 eval baseline) and `OpenAICompatibleClient`,
-one adapter reaching Ollama, vLLM, LM Studio, OpenRouter, Groq and most local
-runtimes. N vendor clients would buy almost nothing on top of it.
+CompletionClient (AnthropicClient + one OpenAI-compatible adapter) and
+EmbeddingClient, separate because Anthropic has no embeddings API. `complete`
+returns usage and stop reason but does not parse, validate or retry.
 
-Slot 2 is `EmbeddingClient`, separate because Anthropic has no embeddings API,
-so the two providers are always different services here.
-
-`complete` returns a result object, not a bare str, so token usage and stop
-reason survive. It still doesn't parse, validate or retry -- that is guardrail
-1's job (extract.py), and keeping it out of here is what makes the guardrail
-portable across providers.
-
-Chunking and MAX_INPUT_TOKENS (§5.3) land with the second backend.
+Rationale and adapter quirks: docs/DECISIONS.md#two-slots
 """
 
 from __future__ import annotations
@@ -33,10 +24,8 @@ from enrich.config import (
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT_SECONDS = 300.0
 
-# Stop reasons that mean "the model was cut off", across both vendors'
-# vocabularies. A truncated response is not a guardrail failure -- it fails the
-# JSON parse like any other malformed output -- but it has a different fix
-# (raise max_tokens) and is worth saying out loud in the log.
+# "The model was cut off", in both vendors' vocabularies. Not a guardrail
+# branch -- it fails the JSON parse anyway -- but the fix differs.
 TRUNCATION_STOP_REASONS = frozenset({"max_tokens", "length"})
 
 Vector = list[float]
@@ -112,8 +101,7 @@ class AnthropicClient:
         except anthropic.APIError as exc:
             raise EnrichmentError(f"anthropic call failed: {exc}") from exc
 
-        # Adaptive thinking puts thinking blocks in content alongside the text;
-        # only the text blocks are the answer.
+        # Adaptive thinking puts thinking blocks in content; only text is the answer.
         text = "".join(block.text for block in response.content if block.type == "text")
         return CompletionResult(
             text=text,
@@ -160,8 +148,8 @@ class OpenAICompatibleClient:
     def complete(
         self, system: str, user: str, *, max_tokens: int = DEFAULT_MAX_TOKENS
     ) -> CompletionResult:
-        # `max_tokens`, not `max_completion_tokens`: the older spelling is what
-        # every local runtime accepts, and reaching those is why this exists.
+        # `max_tokens`, not `max_completion_tokens`: the spelling local
+        # runtimes accept, and reaching those is why this adapter exists.
         payload = {
             "model": self.model,
             "max_tokens": max_tokens,
@@ -278,8 +266,8 @@ class OpenAICompatibleEmbeddingClient:
             raise EnrichmentError(f"{self._base_url}/embeddings returned non-JSON: {exc}") from exc
 
         try:
-            # Sort by index -- providers may return out of order, and a
-            # permuted batch attaches every vector to the wrong report.
+            # Providers may return out of order; a permuted batch would attach
+            # every vector to the wrong report.
             items = sorted(body["data"], key=lambda item: item["index"])
             return [list(item["embedding"]) for item in items]
         except (KeyError, IndexError, TypeError) as exc:

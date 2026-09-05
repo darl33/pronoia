@@ -1,22 +1,11 @@
 """The gold-set fixture schema and loader (DESIGN.md §7).
 
-A fixture is a pair of files in `gold/`: a `.json` annotation and the `.txt`
-document it annotates. The split is not cosmetic -- report text is thousands
-of characters with meaningful line breaks, and inlining it as a JSON string
-makes the one thing a human has to read while annotating unreadable and every
-diff useless.
+A fixture is a .json annotation plus the .txt document it annotates. Validation
+is deliberately loud: annotations the pipeline's own vocabulary cannot express
+are reported as gold-set defects, not absorbed into the score.
 
-Validation happens at load time and is deliberately loud. The failure mode
-this exists to prevent is a gold set that quietly disagrees with the system's
-vocabulary -- an actor name that is not in MISP, a technique ID that ATT&CK
-retired, a sector spelled a way nothing will ever produce. Every one of those
-silently depresses the score and looks exactly like a model failure. So the
-loader resolves the annotation through the *same* indexes the pipeline uses
-and reports what it could not resolve as a gold-set defect, separately from
-anything the model did.
-
-`extra="forbid"`, as in enrich/contract.py: a typo'd key in a hand-edited
-fixture should stop the run, not be silently ignored.
+Rationale: docs/DECISIONS.md#gold-set
+Annotation format: eval/gold/README.md
 """
 
 from __future__ import annotations
@@ -58,12 +47,8 @@ class GoldActor(_Strict):
 
 class GoldTechnique(_Strict):
     technique_id: str = Field(min_length=5, max_length=16)
-    # The annotation that makes the baseline comparison worth running. True
-    # means the ID (or its exact ATT&CK name) is written in the document, so a
-    # regex can find it; false means the behaviour is described in prose and
-    # only a reader who knows ATT&CK maps it. §7's claim is that the LLM's
-    # lift shows up on the false ones, and this field is what turns that into
-    # a measurement.
+    # True = the ID (or its exact ATT&CK name) is written in the document, so a
+    # regex can find it. The false ones are where §7's lift is measured.
     explicit_in_text: bool
     note: str | None = Field(default=None, max_length=500)
 
@@ -147,8 +132,7 @@ class GoldFixture(_Strict):
 class GoldSet:
     fixtures: list[GoldFixture] = field(default_factory=list)
     placeholders: list[GoldFixture] = field(default_factory=list)
-    # Gold-set defects, not model failures. Surfaced in the scorecard so a
-    # depressed score is never mistaken for one when it is really the other.
+    # Gold-set defects, not model failures; surfaced separately in the scorecard.
     defects: list[str] = field(default_factory=list)
 
     def __len__(self) -> int:
@@ -168,8 +152,7 @@ def load_fixture(path: Path) -> GoldFixture:
     if not text_path.is_file():
         raise FileNotFoundError(f"{path.name} references {fixture.document.text_file}, which is missing")
 
-    # model_copy rather than mutation: the model is frozen in spirit (every
-    # other field came from the file) and copying keeps "loaded" a single step.
+    # model_copy, not mutation: every other field came from the file.
     return fixture.model_copy(update={"text": text_path.read_text(encoding="utf-8")})
 
 
@@ -185,9 +168,8 @@ def _check_annotation(fixture: GoldFixture, *, technique_index=None, actor_index
             continue
         check = technique_index.check(technique.technique_id)
         if not check.ok:
-            # A gold ID the closed-world guardrail would reject is unscoreable:
-            # the pipeline can never produce it, so it is a guaranteed false
-            # negative that measures the annotation, not the model.
+            # Unscoreable: the pipeline can never produce it, so it would be a
+            # guaranteed false negative measuring the annotation, not the model.
             defects.append(
                 f"{fixture.id}: gold technique {technique.technique_id} {check.reason}"
             )

@@ -1,11 +1,7 @@
 """`pronoia doctor` (DESIGN.md §5.4): resolve config, one cheap round-trip per
 endpoint, print what is enabled, what is degraded, and the env var for each gap.
 
-Prevents discovering a bad key three hours into a batch run, and makes §5.4's
-claim checkable rather than asserted.
-
-Round-trips are free or near-free -- count_tokens, GET /v1/models, one short
-embed. A diagnostic that costs money is one people stop running.
+Rationale: docs/DECISIONS.md#doctor
 """
 
 from __future__ import annotations
@@ -59,11 +55,8 @@ def _check_database() -> tuple[Check, object | None]:
 
 
 def _check_schema(engine) -> list[Check]:
-    """REPORT_EMBEDDING_DIM must equal the migration's VECTOR(n).
-
-    Nothing makes them agree automatically, and drift fails every embedding
-    write at INSERT time -- exactly the mid-run discovery §5.4 prevents.
-    """
+    """REPORT_EMBEDDING_DIM must equal the migration's VECTOR(n); nothing makes
+    them agree automatically and drift fails every embedding write."""
     if engine is None:
         return []
 
@@ -150,9 +143,8 @@ def _check_completions() -> tuple[list[Check], object | None]:
         Check("completions", OK, f"{config.provider} / {config.model} via {config.base_url}", config.source)
     ]
 
-    # Printed even though nothing is wrong: this is the one setting that
-    # silently changes *how* a document is extracted (§5.3), and both halves
-    # share one window on a local model.
+    # Printed even when fine: it silently changes *how* a document is
+    # extracted, and both halves share one window on a local model.
     checks.append(
         Check(
             "  token budget",
@@ -224,9 +216,8 @@ def _short(exc: object, limit: int = 120) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
-# An expired key, a wrong model id, a rate limit and an empty credit balance
-# all arrive as one HTTP error with four different fixes, so quote the
-# provider's own `message` rather than guessing one.
+# Expired key, wrong model id, rate limit and empty balance all arrive as one
+# HTTP error with four different fixes, so quote the provider's own message.
 _PROVIDER_MESSAGE_RE = re.compile(r"'message':\s*'([^']+)'")
 
 

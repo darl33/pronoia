@@ -1,5 +1,8 @@
-"""Content-hash dedup key (DESIGN.md §4: `raw_document.content_hash`,
-unique on (feed_id, content_hash))."""
+"""Content-hash dedup key (DESIGN.md §4: raw_document.content_hash, unique on
+(feed_id, content_hash)).
+
+What gets hashed and why: docs/DECISIONS.md#dedup-hash
+"""
 
 from __future__ import annotations
 

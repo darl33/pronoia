@@ -127,10 +127,8 @@ def test_prompt_version_matches_git_tree_hash():
         pytest.skip("not a git checkout; nothing to compare against")
     relative = PROMPTS_DIR.resolve().relative_to(Path(toplevel.stdout.strip()).resolve())
 
-    # prompt_version deliberately tracks the working tree, not HEAD, so that an
-    # extraction run mid-iteration is still attributable. That makes the two
-    # legitimately differ while prompts/ is dirty -- which is a skip, not a
-    # failure.
+    # prompt_version tracks the working tree, not HEAD, so the two legitimately
+    # differ while prompts/ is dirty: skip, not fail.
     dirty = git("status", "--porcelain", "--", str(relative))
     if dirty.returncode == 0 and dirty.stdout.strip():
         pytest.skip("prompts/ has uncommitted edits; prompt_version tracks the working tree")

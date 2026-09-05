@@ -2,14 +2,7 @@
 
     uv run python -m scripts.reembed [--batch-size N] [--limit N] [--dry-run]
 
-§5.3 says embeddings are BYO at deployment, not hot-swappable. This is what
-makes that migration path real rather than hypothetical.
-
-Safe to re-run after an interruption: the work query skips rows already on the
-configured model, and each batch commits on its own, so a second run resumes
-where the first stopped and a completed run is a no-op. Not one big
-transaction -- that would hold locks throughout and lose all progress on any
-failure, the opposite of what a recovery tool should do.
+Resumable, one transaction per batch: docs/DECISIONS.md#embedding-provenance
 """
 
 from __future__ import annotations
@@ -96,8 +89,7 @@ def reembed(engine, embedder, *, batch_size: int, limit: int | None, dry_run: bo
                 f"{len(batch)}; refusing to guess which vector belongs to which report"
             )
 
-        # One transaction per batch: the vector and both provenance columns for
-        # every row in the batch land together or not at all.
+        # One transaction per batch: vector and provenance land together.
         with engine.begin() as conn:
             for row, vector in zip(batch, vectors):
                 if len(vector) != dimension:

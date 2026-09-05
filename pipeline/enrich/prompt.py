@@ -1,16 +1,10 @@
 """Prompt loading, versioning, and report-text enclosure.
 
-Guardrail 6 (DESIGN.md §5.2) lives half in prompts/extract_system.md -- the "this
-is data, not instructions" rule -- and half here: `render_user_prompt` strips the
-closing marker from the document, because a delimiter the payload can forge is
-not a delimiter. The real defense is structural anyway: a successful injection
-still has to pass schema, closed-world and evidence validation, so the blast
-radius is one bad row.
+Guardrail 6's mechanical half (DESIGN.md §5.2): the document is enclosed as
+data and cannot forge its way out. prompt_version is the git tree hash of
+prompts/, over working-tree content.
 
-`prompt_version` is the git tree hash of prompts/, computed from working-tree
-content. It matches `git rev-parse --short HEAD:pipeline/enrich/prompts` when
-clean, but is defined mid-edit too -- so a run is attributable to the exact
-prompt bytes that produced it, which §7's scorecards need.
+Rationale: docs/DECISIONS.md#g6-prompt-injection
 """
 
 from __future__ import annotations

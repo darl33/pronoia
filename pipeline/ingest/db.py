@@ -1,8 +1,7 @@
-"""SQLAlchemy Core table definitions mirroring db/migrations exactly, plus
-thin, bound-parameter-only helpers (DESIGN.md §6: "SQLAlchemy bound
-parameters (Python); no string-built SQL anywhere"). The pipeline connects
-with a write-capable role; the schema itself is owned by db/migrations, not
-by this module.
+"""SQLAlchemy Core tables mirroring db/migrations, plus bound-parameter-only
+helpers. The schema is owned by db/migrations, not here.
+
+docs/DECISIONS.md#schema-ownership
 """
 
 from __future__ import annotations

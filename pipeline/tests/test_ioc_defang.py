@@ -43,8 +43,8 @@ def test_no_stored_value_is_clickable():
         stored = defang_ioc(kind, value).value_defanged
         assert "http://" not in stored and "https://" not in stored
 
-        # Strip the bracketed separators; whatever is left must contain no
-        # bare separator at all -- that is what makes the value inert.
+        # After stripping bracketed separators, no bare separator may remain --
+        # that is what makes the value inert.
         authority = stored.split("//", 1)[-1].split("/", 1)[0]
         bare = authority.replace("[.]", "").replace("[@]", "").replace("[:]", "")
         assert "." not in bare

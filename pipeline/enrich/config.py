@@ -1,13 +1,13 @@
 """Provider resolution (DESIGN.md §5.4): zero-to-three env vars in, a working
-config out. §5.3 made swapping possible; this makes it easy.
+config out.
 
-Completions resolve in this order: explicit LLM_BASE_URL, else infer from the
-LLM_API_KEY prefix, else probe localhost. Each provider carries a default base
-URL and model, so a key alone is a working configuration.
+Completions resolve as: explicit LLM_BASE_URL, else the LLM_API_KEY prefix,
+else a localhost probe. resolve_embedding never raises -- embeddings degrade to
+None so the one-key promise holds.
 
-Two rules the module exists to enforce: an unrecognized key prefix raises a
-ConfigError naming LLM_BASE_URL rather than crashing, and resolve_embedding
-never raises at all -- embeddings degrade to None so the one-key promise holds.
+Rationale: docs/DECISIONS.md#key-inference
+Embeddings degrading rather than blocking: docs/DECISIONS.md#embeddings-degrade
+Token budgets: docs/DECISIONS.md#context-budget
 """
 
 from __future__ import annotations
@@ -20,33 +20,22 @@ import httpx
 
 log = logging.getLogger("enrich.config")
 
-# Must equal the VECTOR(n) in db/migrations; §5.3 fixes it at first migration.
-# README "Changing the embedding model" covers changing them together.
+# Must equal the VECTOR(n) in db/migrations. Changing both together: see the
+# README section "Changing the embedding model".
 REPORT_EMBEDDING_DIM = 1024
 
-# §5.4 zero-key path. Both speak OpenAI-compatible /v1, so one probe covers
-# Ollama and vLLM and neither needs a vendor client.
+# §5.4 zero-key path; both speak OpenAI-compatible /v1, so one probe covers them.
 LOCAL_PROBE_URLS = ("http://localhost:11434", "http://localhost:8000")
 PROBE_TIMEOUT_SECONDS = 1.5
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 
-# Context budget (§5.3), in tokens of *input*, per backend. Chunking above this
-# is what makes "swap the env var to a local model" degrade instead of failing
-# on the richest documents. Overridable with MAX_INPUT_TOKENS.
-#
-# The local default is deliberately small: the OpenAI-compatible adapter
-# reaches runtimes whose context window we cannot discover from here (/v1/models
-# does not report it), and an 8k model is the common case an unconfigured
-# reviewer has running. Chunking a document that would have fit costs an extra
-# call; not chunking one that doesn't fit loses the document entirely.
+# Per-backend token budgets; documents over the input figure are chunked
+# (§5.3). The local pair must fit one 8k window together, since input and
+# output share it. Overridable with MAX_INPUT_TOKENS / MAX_OUTPUT_TOKENS.
+# Why these numbers: docs/DECISIONS.md#context-budget
 LOCAL_MAX_INPUT_TOKENS = 6_000
 HOSTED_MAX_INPUT_TOKENS = 100_000
-
-# Output cap, per backend. Input and output share one window on a local model:
-# asking an 8k model for 16k of output is a hard error on vLLM and a silent
-# clamp on Ollama, so the local pair (6k in, 2k out) has to fit inside 8k.
-# 2k is enough for a chunk's worth of extraction JSON with quotes.
 LOCAL_MAX_OUTPUT_TOKENS = 2_048
 HOSTED_MAX_OUTPUT_TOKENS = 16_000
 
@@ -64,19 +53,13 @@ class Provider:
     name: str
     base_url: str
     default_model: str
-    # None means the provider has no embeddings API at all. Anthropic is the
-    # motivating case (§5.3) and the reason embeddings are a separate slot.
+    # None means the provider has no embeddings API (Anthropic).
     default_embedding_model: str | None
-    # True for providers whose embeddings endpoint accepts an OpenAI-style
-    # `dimensions` request parameter. Only those can be asked for a vector
-    # width that matches VECTOR(1024); sending it elsewhere is a 400.
+    # Accepts an OpenAI-style `dimensions` parameter; sending it elsewhere 400s.
     embedding_supports_dimensions: bool = False
-    # True for the one provider we do not reach through the OpenAI-compatible
-    # adapter. Anthropic's Messages API is not /v1/chat/completions.
+    # Not reached through the OpenAI-compatible adapter (Anthropic's Messages API).
     native_sdk: bool = False
-    # Well below each vendor's real window: the budget is an estimate made from
-    # a character heuristic (enrich/chunk.py), and the cost of being wrong is a
-    # hard failure at the top of the range and one extra call near it.
+    # Well below the vendor's real window; the budget is a character estimate.
     max_input_tokens: int = HOSTED_MAX_INPUT_TOKENS
     max_output_tokens: int = HOSTED_MAX_OUTPUT_TOKENS
 
@@ -115,9 +98,8 @@ OPENROUTER = Provider(
 PROVIDERS = (ANTHROPIC, OPENAI, GROQ, OPENROUTER)
 PROVIDERS_BY_NAME = {provider.name: provider for provider in PROVIDERS}
 
-# Ordered longest-prefix-first and asserted below: 'sk-ant-', 'sk-proj-' and
-# 'sk-or-v1-' all start with 'sk-', so a shortest-first table would resolve
-# every Anthropic key to OpenAI.
+# Longest-prefix-first, asserted below: 'sk-ant-' and 'sk-proj-' both start
+# with 'sk-', so shortest-first would resolve Anthropic keys to OpenAI.
 KEY_PREFIXES: tuple[tuple[str, Provider], ...] = (
     ("sk-or-v1-", OPENROUTER),
     ("sk-proj-", OPENAI),
@@ -143,8 +125,8 @@ class CompletionConfig:
     api_key: str | None
     native_sdk: bool
     source: str  # how this was resolved, in words, for `pronoia doctor`
-    # Documents longer than this are chunked (§5.3). Defaults to the
-    # conservative local figure so a config built by hand degrades safely.
+    # Documents over this are chunked; defaults conservative so a hand-built
+    # config degrades safely.
     max_input_tokens: int = LOCAL_MAX_INPUT_TOKENS
     max_output_tokens: int = LOCAL_MAX_OUTPUT_TOKENS
 
@@ -156,8 +138,7 @@ class EmbeddingConfig:
     model: str
     api_key: str | None
     source: str
-    # Ask the endpoint for this vector width, or None to take its native width.
-    # Only set for providers that accept the parameter (see Provider above).
+    # Requested vector width, or None to take the endpoint's native one.
     request_dimension: int | None
 
 
@@ -186,8 +167,8 @@ def match_key_prefix(key: str) -> Provider | None:
 
 
 def _positive_int_env(name: str, default: int) -> int:
-    """A bad value warns and falls back rather than raising: these are tuning
-    knobs, and a typo should not stop a batch that runs fine on the default."""
+    """The env override if set and positive, else the default. A bad value warns
+    and falls back -- a typo in a tuning knob should not stop a batch."""
     override = _env(name)
     if override is None:
         return default
@@ -290,8 +271,8 @@ def resolve_completion() -> CompletionConfig:
     if key:
         provider = match_key_prefix(key)
         if provider is not None:
-            # An explicit base URL means an OpenAI-compatible proxy in front of
-            # the vendor, so it also switches off the native SDK path.
+            # An explicit base URL means a proxy in front of the vendor, so it
+            # also switches off the native SDK path.
             return CompletionConfig(
                 provider=provider.name,
                 base_url=base_url_override or provider.base_url,
@@ -373,9 +354,8 @@ def _embedding_config(
         except ValueError:
             log.warning("EMBEDDING_DIM=%r is not an integer; ignoring it", override)
     elif supports_dimensions:
-        # The endpoint can be asked for the width the schema already has, which
-        # is the difference between OpenAI's 1536-wide default working out of
-        # the box and silently degrading against VECTOR(1024).
+        # Ask for the width the schema already has, rather than degrading
+        # against the provider's wider default.
         request_dimension = REPORT_EMBEDDING_DIM
     return EmbeddingConfig(
         provider=provider,
@@ -446,10 +426,9 @@ def resolve_embedding(completion: CompletionConfig) -> EmbeddingConfig | None:
                 supports_dimensions=_env("EMBEDDING_DIM") is not None,
             )
 
-    # Last resort: the completion provider has no embeddings API (Anthropic is
-    # the case §5.3 names), so look for a local one. A reviewer running Ollama
-    # for embeddings and a hosted key for extraction is a perfectly ordinary
-    # setup and needs no configuration to work.
+    # Last resort: completion provider has no embeddings API, so look for a
+    # local one -- Ollama for embeddings plus a hosted key for extraction is an
+    # ordinary setup that should need no configuration.
     local = discover_local()
     if local is not None:
         base_url, model_ids = local

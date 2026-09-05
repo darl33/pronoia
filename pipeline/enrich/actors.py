@@ -1,15 +1,10 @@
 """Guardrail 4 (DESIGN.md §5.2): actor name resolution.
 
-The model emits free-text actor names -- whatever the report called them.
-Python resolves those against threat_actor canonical names and aliases:
-case-insensitive exact match first, then difflib fuzzy matching above a 0.9
-ratio. Anything that doesn't resolve goes to actor_review_queue for a human,
-never into report_actor.
+Free-text names resolve against threat_actor canonical names and aliases --
+exact first, then difflib above FUZZY_THRESHOLD. Unresolved names go to
+actor_review_queue, never into report_actor.
 
-The point is that the actor dimension stays trustworthy. A vendor report's
-"Sandworm Team" and another's "APT44" have to become the same row or the
-correlation queries in §8 are meaningless, and an unrecognized name has to
-stay visibly unrecognized rather than quietly becoming a new actor.
+Rationale: docs/DECISIONS.md#g4-actor-resolution
 """
 
 from __future__ import annotations
@@ -58,10 +53,8 @@ class ActorIndex:
                 normalized = _normalize(name)
                 if not normalized:
                     continue
-                # First writer wins: MISP aliases collide across clusters
-                # (e.g. several groups claim "APT15"), and silently rebinding
-                # a name to whichever cluster loaded last would be worse than
-                # keeping it stable.
+                # First writer wins: MISP aliases collide across clusters, and
+                # rebinding by load order would be worse than staying stable.
                 self._exact.setdefault(normalized, actor_id)
                 self._names.append((normalized, name, actor_id))
 
@@ -84,8 +77,7 @@ class ActorIndex:
         matcher.set_seq2(normalized)
         for candidate, display, candidate_id in self._names:
             matcher.set_seq1(candidate)
-            # real_quick_ratio/quick_ratio are cheap upper bounds; skip the
-            # full ratio() when they already rule the candidate out.
+            # Cheap upper bounds; skip the full ratio() when they rule it out.
             if matcher.real_quick_ratio() <= best_score or matcher.quick_ratio() <= best_score:
                 continue
             score = matcher.ratio()

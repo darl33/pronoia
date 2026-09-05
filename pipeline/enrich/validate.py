@@ -1,14 +1,8 @@
 """Applies guardrails 2, 3, 4 and the §6 IOC rule to a schema-valid Extraction,
-producing the rows that are actually allowed to be written.
+producing the rows allowed to be written.
 
-Nothing here trusts the model. An Extraction that passed guardrail 1 is
-well-formed, not correct: it can still name techniques that don't exist, quote
-text that isn't in the document, name actors we've never heard of, and label a
-URL as a hash. This module is where each of those becomes a drop with a reason
-rather than a row.
-
-Drops are returned, not just logged, so the caller can report them and so §7's
-eval harness can measure them per (model, prompt_version).
+Drops are returned, not just logged, so the caller can report them and §7's
+eval can measure them. Rationale: docs/DECISIONS.md#guardrails
 """
 
 from __future__ import annotations
@@ -75,8 +69,7 @@ def validate_extraction(
     result = ValidatedExtraction(extraction=extraction)
     evidence_index = EvidenceIndex(clean_text)
 
-    # Guardrails 2 and 3: a technique mention must name a real ATT&CK ID *and*
-    # carry a quote that is actually in the document. Both must hold.
+    # Guardrails 2 and 3: real ATT&CK ID *and* a quote found in the document.
     seen_techniques: set[str] = set()
     for mention in extraction.techniques:
         technique_id = mention.technique_id
@@ -93,8 +86,7 @@ def validate_extraction(
             )
             continue
 
-        # report_technique is keyed (report_id, technique_id); keep the first
-        # surviving quote rather than letting a later duplicate overwrite it.
+        # One quote per (report_id, technique_id); keep the first survivor.
         if technique_id in seen_techniques:
             continue
         seen_techniques.add(technique_id)
@@ -136,13 +128,11 @@ def validate_extraction(
             )
         )
 
-    # §6: defang unconditionally, and drop anything whose value disagrees with
-    # its claimed kind -- a mislabelled IOC is a defanging bypass.
+    # Defang unconditionally; a value disagreeing with its kind is a bypass.
     for mention in extraction.iocs:
         defanged = defang_ioc(mention.kind, mention.value)
         if not defanged.ok:
-            # The raw value is deliberately not in the drop record: it may be a
-            # live indicator, and drops get logged.
+            # Raw value omitted: it may be live, and drops get logged.
             result.drops.append(Drop("ioc_defang", f"<{mention.kind}>", defanged.reason))
             continue
         result.iocs.append(

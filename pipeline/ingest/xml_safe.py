@@ -1,9 +1,7 @@
 """XXE-safe XML parsing for RSS/Atom feeds (DESIGN.md §6).
 
-defusedxml blocks external entity expansion, internal entity expansion, and
-DTD-based billion-laughs bombs by default. We additionally set forbid_dtd so
-any DOCTYPE declaration at all is rejected outright, rather than trying to
-distinguish a "safe" DOCTYPE from a malicious one.
+defusedxml plus forbid_dtd. Why DOCTYPE is rejected outright rather than
+inspected: docs/DECISIONS.md#xxe
 """
 
 from __future__ import annotations

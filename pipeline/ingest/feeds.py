@@ -11,9 +11,8 @@ class FeedSeed:
     url: str
     kind: str
     poll_interval_minutes: int = 360
-    # Follow each entry's link and store the article body instead of the feed
-    # teaser (ingest/article.py). Off by default: it is extra outbound traffic
-    # and extra SSRF surface, so each feed opts in explicitly.
+    # Follow each entry's link for the article body (ingest/article.py). Off by
+    # default -- extra traffic and extra SSRF surface, so feeds opt in.
     fetch_articles: bool = False
 
 
@@ -27,16 +26,14 @@ FEED_SEEDS: list[FeedSeed] = [
         name="ACSC Advisories",
         url="https://www.cyber.gov.au/rss/advisories",
         kind="rss",
-        # Publishes a one-line teaser per advisory (85-300 chars); the body
-        # lives behind the link on the same host.
+        # One-line teasers (85-300 chars); the body is behind the link.
         fetch_articles=True,
     ),
     FeedSeed(
         name="Cisco Talos Blog",
         url="https://blog.talosintelligence.com/rss/",
         kind="rss",
-        # Already ships the full post in <content:encoded> (~11k chars average),
-        # so following links would be 15 pointless requests per poll.
+        # Already ships the full post in <content:encoded> (~11k chars).
         fetch_articles=False,
     ),
     FeedSeed(

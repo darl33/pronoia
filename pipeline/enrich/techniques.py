@@ -1,10 +1,7 @@
 """Guardrail 2 (DESIGN.md §5.2): closed-world technique IDs.
 
-The model is told to emit only ATT&CK technique IDs, but telling it isn't the
-control -- the control is that every ID is checked against the attack_technique
-table afterwards and dropped if absent. Inventing plausible-looking IDs
-(T1566.004, T1071.005) is the single most common hallucination class in this
-task, and a set membership test kills all of it.
+Every ID the model emits is checked against attack_technique and dropped if
+absent. Rationale: docs/DECISIONS.md#g2-closed-world
 """
 
 from __future__ import annotations
@@ -34,8 +31,8 @@ class TechniqueIndex:
     def check(self, technique_id: str) -> TechniqueCheck:
         candidate = technique_id.strip().upper()
 
-        # Checked before membership only so the log line distinguishes "made up
-        # an ID" from "emitted something that isn't an ATT&CK ID at all".
+        # Before membership only so the log distinguishes a malformed ID from
+        # a well-formed one that does not exist.
         if not _TECHNIQUE_ID_RE.match(candidate):
             return TechniqueCheck(False, "not a well-formed ATT&CK technique ID")
         if candidate not in self._known:

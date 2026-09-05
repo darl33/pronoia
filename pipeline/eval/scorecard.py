@@ -1,10 +1,7 @@
-"""Markdown scorecards, one per (backend, model, prompt_version) (DESIGN.md §7).
+"""Markdown scorecards, one per (backend, model, prompt_version) (DESIGN.md §7),
+plus the cross-backend comparison table.
 
-Being committed output explains two otherwise-fussy properties: the filename is
-keyed on that triple so a re-run overwrites its own cell instead of accumulating
-near-duplicates, and the run metadata (timestamp, git commit, whether the tree
-was dirty) lives *inside* the file. A scorecard you cannot attribute to a commit
-is decoration.
+Filename keying and in-file run metadata: docs/DECISIONS.md#scorecards
 """
 
 from __future__ import annotations
@@ -20,10 +17,8 @@ from eval.score import FIELDS, SystemScore, unknown_sectors
 
 SCORECARD_DIR = Path(__file__).parent / "scorecards"
 
-# §7: ">0.85 F1 on techniques at parent granularity on the primary backend
-# before calling the pipeline done". Alternative backends are characterized,
-# not gated -- so this is printed for every backend but only asserted for the
-# primary.
+# §7's target, for the primary backend only. Alternative backends are
+# characterized, not gated, so it is printed everywhere but asserted for one.
 PARENT_F1_TARGET = 0.85
 
 
@@ -43,11 +38,8 @@ class RunMetadata:
 
 
 def git_commit() -> str:
-    """Short hash, suffixed '-dirty' when the tree has uncommitted changes.
-
-    The suffix is the important half: numbers from a modified tree replicate from
-    no commit, and saying so now is cheaper than discovering it later.
-    """
+    """Short hash, suffixed '-dirty' when the tree has uncommitted changes --
+    numbers from a modified tree replicate from no commit."""
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -72,8 +64,8 @@ def scorecard_path(metadata: RunMetadata, directory: Path = SCORECARD_DIR) -> Pa
 
 
 def comparison_path(prompt_version: str, directory: Path = SCORECARD_DIR) -> Path:
-    """Keyed on prompt_version alone: the cross-backend table is only
-    meaningful when the prompt is held constant across the backends in it."""
+    """Keyed on prompt_version alone -- the table only means anything with the
+    prompt held constant."""
     return directory / f"cross-backend--{prompt_version}.md"
 
 
@@ -312,9 +304,8 @@ def render_scorecard(
 
 def render_comparison(prompt_version: str, results: list[tuple[RunMetadata, SystemScore]],
                       baseline: SystemScore) -> str:
-    """The cross-backend table (§7): what makes "provider-agnostic" measured
-    rather than asserted. The baseline column is shared -- it does not depend on
-    the backend, so it is the fixed floor both are read against."""
+    """The cross-backend table (§7). The baseline column is shared: it does not
+    depend on the backend, so it is the fixed floor both are read against."""
     header = ["Field"] + [f"{meta.backend} ({meta.model})" for meta, _ in results] + ["baseline"]
 
     rows = []

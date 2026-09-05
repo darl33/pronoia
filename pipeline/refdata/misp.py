@@ -1,15 +1,9 @@
 """Import the MISP galaxy threat-actor cluster into threat_actor
 (DESIGN.md §3, §4).
 
-This is the canonical-name + alias table guardrail 4 resolves against, and it
-is the reason the actor dimension is queryable at all: one report's "Sandworm
-Team" and another's "APT44" have to land on the same row.
-
-`suspected_origin_country` comes from the cluster's `meta.country`. That is
-reference data recording what the CTI community reports about an actor -- §4
-is explicit that the column holds origin "as *reported*". It is not, and must
-not become, a per-report attribution: guardrail 5 keeps the model from
-inferring origin, and this column is not consulted when writing report_actor.
+The canonical-name + alias table guardrail 4 resolves against.
+suspected_origin_country is reference data, never a per-report attribution:
+docs/DECISIONS.md#misp-origin
 """
 
 from __future__ import annotations

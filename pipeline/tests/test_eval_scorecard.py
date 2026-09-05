@@ -35,8 +35,7 @@ def _gold_set():
 
 
 def _llm_predictions(fixtures):
-    """One good extraction and one hard failure -- the two cases that render
-    differently."""
+    """One good extraction and one hard failure: the two render paths."""
     good, failed = fixtures
     return [
         Prediction(
@@ -118,8 +117,7 @@ def test_failed_extraction_is_reported_not_hidden():
 
     assert "schema_fail" in markdown
     assert "0002-fin7-health-ransomware" in markdown
-    # Its gold items count as false negatives, so recall must be below 1.0
-    # even though the other document was extracted perfectly.
+    # Its gold items count as false negatives, so recall drops below 1.0.
     assert llm.micro("techniques (parent)").recall < 1.0
 
 
@@ -129,8 +127,7 @@ def test_off_vocabulary_sectors_are_surfaced():
 
 
 def test_undefined_metrics_render_as_not_available():
-    """The baseline never checks a quote, so its evidence-quote validity is
-    undefined rather than zero -- and must not print as 0.0%."""
+    """The baseline writes no quotes, so validity is undefined, not 0.0%."""
     _, llm, baseline = _scores()
     assert baseline.evidence_quote_validity is None
     assert "n/a" in render_comparison("abc123def456", [(_metadata(), llm)], baseline)

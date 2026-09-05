@@ -50,8 +50,7 @@ def test_f1_is_the_harmonic_mean():
 
 
 def test_silence_on_a_document_with_answers_scores_zero():
-    """The convention that matters most: a failed extraction predicts nothing,
-    and must not collect a vacuous precision of 1.0 for it."""
+    """A failed extraction predicts nothing, and earns no vacuous 1.0."""
     counts = score_sets(set(), {"a", "b"})
     assert (counts.tp, counts.fp, counts.fn) == (0, 0, 2)
     assert counts.precision == 0.0
@@ -70,8 +69,7 @@ def test_inventing_items_against_an_empty_gold_set_scores_zero():
 def test_correct_silence_is_vacuously_perfect_but_degenerate():
     counts = score_sets(set(), set())
     assert counts.precision == counts.recall == counts.f1 == 1.0
-    # ...and therefore excluded from the macro mean: 1.0 by convention, not by
-    # performance.
+    # Excluded from the macro mean: 1.0 by convention, not performance.
     assert counts.degenerate
 
 
@@ -84,8 +82,7 @@ def test_counts_add_and_sum():
 
 
 def test_micro_and_macro_answer_different_questions():
-    """Micro pools first; macro averages per-document F1. Same two documents,
-    different numbers -- which is why the scorecard prints both."""
+    """Same two documents, different numbers -- why both are printed."""
     document_a = score_sets({"a", "b"}, {"a", "b"})   # F1 1.0
     document_b = score_sets(set(), {"c", "d", "e"})   # F1 0.0
 
@@ -123,8 +120,8 @@ def test_parent_technique_rollup():
 
 
 def test_sub_technique_disagreement_is_a_parent_level_hit():
-    """The reason §7 reports both. Predicting the wrong sub-technique of the
-    right parent is a total miss at sub granularity and correct at parent."""
+    """Wrong sub-technique, right parent: a miss at one granularity, a hit at
+    the other. The reason §7 reports both."""
     predicted, gold = {"T1566.002"}, {"T1566.001"}
 
     assert score_sets(predicted, gold).f1 == 0.0
@@ -132,7 +129,7 @@ def test_sub_technique_disagreement_is_a_parent_level_hit():
 
 
 def test_parent_rollup_collapses_rather_than_multiplying_errors():
-    """Two sub-techniques of one parent against a parent-level gold annotation
-    is one right answer, not one hit and one false positive."""
+    """Two sub-techniques of one parent is one right answer, not a hit plus a
+    false positive."""
     counts = score_sets(to_parents({"T1566.001", "T1566.002"}), to_parents({"T1566"}))
     assert (counts.tp, counts.fp, counts.fn) == (1, 0, 0)

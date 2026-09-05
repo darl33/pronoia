@@ -1,16 +1,10 @@
 """Turning predictions into the numbers the scorecard prints.
 
-All arithmetic lives in metrics.py; this module only decides *what is compared to
-what*, which is where the judgement calls are:
+The arithmetic is in metrics.py; this module decides what is compared to what --
+technique granularity, targets as two fields, resolved actor identity, and
+recall-only on the implicit subset.
 
-* **Techniques are scored twice**, at sub-technique and parent granularity, never
-  merged. §7 sets its >0.85 target on the parent score.
-* **Targets are scored as two fields, not pairs.** Gold (AU, water) against a
-  predicted (AU, null) is one hit and one omission; scoring the pair jointly
-  would record a total miss on both.
-* **Only recall is reported on the implicit subset.** Predictions carry no
-  explicit/implicit label, so a false positive cannot be attributed to it.
-  Recall is well defined there; precision is not.
+docs/DECISIONS.md#what-is-compared
 """
 
 from __future__ import annotations
@@ -55,7 +49,7 @@ def score_document(fixture: GoldFixture, prediction: Prediction) -> DocumentScor
         "targets: sectors": score_sets(prediction.sectors, fixture.sectors()),
     }
 
-    # fp is left at 0 on purpose: unlabelled, not zero. Read `.recall` only.
+    # fp stays 0: unlabelled, not zero. Read `.recall` only.
     implicit_sub = Counts(
         tp=len(prediction.techniques & gold_implicit),
         fn=len(gold_implicit - prediction.techniques),
@@ -103,19 +97,14 @@ class SystemScore:
 
     @property
     def failures(self) -> list[Prediction]:
-        """Documents where the pipeline produced no report at all. Their gold
-        items are already counted as false negatives; this list says *why*."""
+        """Documents that produced no report. Their gold items already count as
+        false negatives; this says why."""
         return [p for p in self.predictions if not p.succeeded]
 
     @property
     def evidence_quote_validity(self) -> float | None:
-        """§7's fourth metric: of every quote the model wrote, how many are
-        real spans of the document. Denominator is all emitted mentions.
-
-        Undefined for the baseline, which writes no quotes -- it cites IDs
-        copied out of the document. Returning 0.0 there would print as "every
-        quote was invalid", the opposite of what is true.
-        """
+        """Of every quote the model wrote, how many are real spans. Undefined
+        for the baseline, which writes no quotes at all."""
         if self.system != "llm":
             return None
         valid = sum(p.evidence_quotes_valid for p in self.predictions)
@@ -124,32 +113,29 @@ class SystemScore:
 
     @property
     def closed_world_pass_rate(self) -> float | None:
-        """Share of emitted technique IDs that exist in ATT&CK. The complement
-        is the hallucinated-ID rate guardrail 2 is there to absorb."""
+        """Share of emitted technique IDs that exist in ATT&CK; the complement
+        is the hallucinated-ID rate guardrail 2 absorbs."""
         passed = sum(p.techniques_closed_world_ok for p in self.predictions)
         emitted = sum(p.techniques_emitted for p in self.predictions)
         return rate(passed, emitted)
 
     @property
     def actor_review_rate(self) -> float | None:
-        """Share of actor mentions that went to the review queue instead of
-        report_actor. High means the reference data is stale more often than
-        it means the model is wrong."""
+        """Share of actor mentions routed to the review queue. High usually
+        means stale reference data, not a wrong model."""
         unresolved = sum(p.actors_unresolved for p in self.predictions)
         emitted = sum(p.actors_emitted for p in self.predictions)
         return rate(unresolved, emitted)
 
     @property
     def chunked_documents(self) -> int:
-        """Documents that exceeded the context budget (§5.3). The number that
-        explains most of the gap in a cross-backend comparison."""
+        """Documents that exceeded the context budget (§5.3)."""
         return sum(1 for p in self.predictions if p.chunks > 1)
 
     @property
     def failed_chunks(self) -> int:
-        """Chunks that produced nothing on a document that still merged. Unlike
-        a whole-document failure this does not show up as a status, so it would
-        otherwise be invisible under-extraction."""
+        """Chunks that produced nothing on a document that still merged -- this
+        has no status of its own, so it would otherwise be invisible."""
         return sum(p.failed_chunks for p in self.predictions)
 
     @property
@@ -178,8 +164,7 @@ def score_system(
 
 
 def unknown_sectors(predictions: list[Prediction]) -> set[str]:
-    """Off-vocabulary sectors the model produced, for the scorecard's
-    "vocabulary gaps" note -- these are prompt work, not model failures."""
+    """Off-vocabulary sectors the model produced: prompt work, not model bugs."""
     return {
         sector
         for prediction in predictions

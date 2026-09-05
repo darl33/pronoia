@@ -37,8 +37,7 @@ def _document(paragraphs: int) -> str:
 
 
 def test_short_text_is_not_split():
-    """Must stay a no-op on hosted backends: the primary backend's §7 scores
-    cannot move because a fallback path was added for a different one."""
+    """A no-op on hosted backends, so their §7 scores cannot move."""
     text = _document(2)
     assert split_text(text, 100_000) == [text]
 
@@ -59,8 +58,7 @@ def test_chunks_respect_the_budget():
 
 
 def test_breaks_land_on_paragraph_boundaries():
-    """A technique is normally described within one paragraph, so this is what
-    keeps evidence sentences intact."""
+    """What keeps evidence sentences intact."""
     text = _document(12)
     for chunk in split_text(text, 600):
         assert chunk.strip().startswith("Section")
@@ -78,9 +76,7 @@ def test_falls_back_to_sentence_boundaries_inside_a_huge_paragraph():
 
 
 def test_hard_cuts_only_as_a_last_resort():
-    """Text with no whitespace at all -- a base64 blob that survived
-    sanitization. It has to be cut somewhere, and it must not hang or lose
-    bytes."""
+    """No whitespace anywhere: must not hang or lose bytes."""
     text = "A" * 5000
     chunks = split_text(text, 512)
 
@@ -96,8 +92,7 @@ def test_budget_subtracts_measured_prompt_overhead():
     tight = document_budget_chars(50_000, prompt_overhead_chars=20_000)
 
     assert generous > tight
-    # Both leave less room than the raw token figure would suggest, because the
-    # prompt and the retry reserve are charged against the same window.
+    # Both under the raw figure: prompt and retry reserve share the window.
     assert generous < 50_000 * 3.5
 
 
@@ -151,9 +146,7 @@ def test_lists_are_unioned_and_deduped():
 
 
 def test_strongest_attribution_wins():
-    """If any chunk carries 'we attribute this to X', the source did assert it.
-    §5.2's discipline rule is about not inferring beyond the source, not about
-    picking its weakest phrasing."""
+    """If any chunk carries "we attribute this to X", the source asserted it."""
     merged = merge_extractions([
         _extraction(actors=[{"name": "FIN7", "attribution_confidence": "suspected"}]),
         _extraction(actors=[{"name": "FIN7", "attribution_confidence": "confirmed_by_source"}]),
@@ -162,8 +155,7 @@ def test_strongest_attribution_wins():
 
 
 def test_first_evidence_quote_wins_for_a_repeated_technique():
-    """report_technique holds one quote per (report, technique), and validate.py
-    keeps the first surviving one -- the merge must not disagree."""
+    """validate.py keeps the first survivor; the merge must not disagree."""
     merged = merge_extractions([
         _extraction(techniques=[{"technique_id": "T1078", "evidence_quote": "the first quote here"}]),
         _extraction(techniques=[{"technique_id": "T1078", "evidence_quote": "a later quote here"}]),
@@ -172,8 +164,7 @@ def test_first_evidence_quote_wins_for_a_repeated_technique():
 
 
 def test_confidence_is_the_lowest_across_chunks():
-    """A document assembled from fragments cannot honestly be more confident
-    than its least confident fragment."""
+    """A record assembled from fragments cannot beat its weakest fragment."""
     merged = merge_extractions([
         _extraction(confidence="high"),
         _extraction(confidence="low"),
@@ -196,8 +187,7 @@ def test_merged_summary_respects_the_contract_cap():
     merged = merge_extractions([_extraction(summary=long_summary) for _ in range(4)])
 
     assert len(merged.summary) <= SUMMARY_MAX_CHARS
-    # Still a valid Extraction -- the merge must not produce something the
-    # contract would reject.
+    # The merge must not produce something the contract would reject.
     Extraction.model_validate(merged.model_dump(mode="json"))
 
 
@@ -263,8 +253,7 @@ def test_long_document_is_chunked_and_merged():
 
 
 def test_a_failed_chunk_does_not_discard_the_rest():
-    """The degradation §5.3 asks for -- but counted, because it is otherwise
-    silent under-extraction."""
+    """The §5.3 degradation, counted rather than silent."""
     client = _ScriptedClient([
         _payload("Good.", "T1078"),
         "not json at all",          # both attempts for this chunk fail
@@ -299,8 +288,7 @@ def test_token_usage_is_summed_across_chunks():
 
 
 def test_output_cap_reaches_the_client():
-    """The other half of the context budget: a small backend's output cap has
-    to arrive at the call, not just its input budget."""
+    """The output cap has to reach the call, not just the input budget."""
     client = _ScriptedClient([_payload("One.", "T1078")])
     extract_document(
         client, "system", _render, _document(1), max_input_tokens=50_000, max_tokens=2048

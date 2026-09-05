@@ -1,14 +1,10 @@
 """Running the live pipeline over one gold fixture (DESIGN.md §7).
 
-Calls `extract_document` and `validate_extraction` directly rather than
-reimplementing them: §7 measures "the live pipeline", so anything reimplemented
-here would be a second, unshipped system whose scores describe nothing.
+Calls extract_document and validate_extraction directly; the only omitted step
+is the database write. `Prediction` is the shape both systems produce, so
+score.py never learns which one it is looking at.
 
-The one omitted step is the database write -- a gold document is not a
-raw_document, and an eval must not add rows to the dataset it is measuring.
-
-`Prediction` is the shape both systems produce, so `score.py` never learns which
-one it is looking at.
+docs/DECISIONS.md#eval-isolation
 """
 
 from __future__ import annotations
@@ -42,9 +38,8 @@ class Prediction:
     countries: set[str] = field(default_factory=set)     # ISO 3166-1 alpha-2
     sectors: set[str] = field(default_factory=set)       # normalized vocabulary
 
-    # Guardrail telemetry, per DESIGN.md §5.2. `techniques_emitted` is the
-    # denominator for both rates below: it counts what the model actually
-    # claimed, before any guardrail removed anything.
+    # Guardrail telemetry (§5.2). `techniques_emitted` is the denominator for
+    # both rates below: what the model claimed, before any guardrail ran.
     techniques_emitted: int = 0
     techniques_closed_world_ok: int = 0
     evidence_quotes_valid: int = 0
@@ -55,9 +50,7 @@ class Prediction:
     input_tokens: int | None = None
     output_tokens: int | None = None
     attempts: int = 0
-    # Context budget (§5.3). `chunks` > 1 means no single call saw the whole
-    # document, which is the headline difference between backends in the §7
-    # cross-backend run and has to be visible next to the scores it explains.
+    # `chunks` > 1 means no single call saw the whole document (§5.3).
     chunks: int = 1
     failed_chunks: int = 0
 
@@ -88,10 +81,9 @@ def _targets_from(targets) -> tuple[set[str], set[str], int]:
 def _evidence_validity(extraction, clean_text: str) -> int:
     """Technique mentions whose quote is a real span of the document.
 
-    Recomputed rather than read off `validate_extraction`'s drops, which check
-    the closed world first and short-circuit: a hallucinated ID never reaches the
-    quote check, so counting drops would shrink the denominator and flatter the
-    rate. §7 wants it over every quote the model wrote.
+    Recomputed rather than read off `validate_extraction`'s drops, which
+    short-circuit on the closed-world check first and would shrink the
+    denominator (docs/DECISIONS.md#what-is-compared).
     """
     index = EvidenceIndex(clean_text)
     return sum(1 for mention in extraction.techniques if index.check(mention.evidence_quote).ok)
@@ -109,9 +101,8 @@ def predict_llm(
 ) -> Prediction:
     """Run the extraction contract + all §5.2 guardrails over one document.
 
-    `canonical_names` maps threat_actor.id -> canonical_name: scoring resolved
-    identity rather than the model's raw string is the only defensible choice,
-    since guardrail 4 exists so "Sandworm Team" and "APT44" become one row.
+    `canonical_names` maps threat_actor.id -> canonical_name; scoring is on
+    resolved identity, not the model's raw string.
     """
     outcome = extract_document(
         client,
@@ -135,9 +126,8 @@ def predict_llm(
     )
 
     if not outcome.succeeded:
-        # Empty sets, deliberately. The pipeline would have written no rows for
-        # this document, so every gold item is a false negative -- see the
-        # third convention in metrics.py.
+        # Empty sets, deliberately: no rows written means every gold item is a
+        # false negative (docs/DECISIONS.md#metric-conventions).
         return prediction
 
     extraction = outcome.extraction
@@ -155,11 +145,8 @@ def predict_llm(
     )
     prediction.evidence_quotes_valid = _evidence_validity(extraction, fixture.text)
 
-    # Unresolved actors are counted, not scored. They never reach report_actor
-    # (they go to the review queue), so they are not part of the system's
-    # output and cannot be false positives; if the gold set expected one, its
-    # absence is already a false negative. The count is reported because a
-    # rising review-queue rate is a reference-data problem, not a model one.
+    # Counted, not scored: unresolved actors never reach report_actor, so they
+    # are not output. See docs/DECISIONS.md#what-is-compared.
     prediction.actors = {canonical_names[actor.actor_id] for actor in validated.actors}
     prediction.actors_emitted = len(extraction.actors)
     prediction.actors_unresolved = len(validated.review_queue)

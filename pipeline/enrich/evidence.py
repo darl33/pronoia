@@ -1,19 +1,8 @@
 """Guardrail 3 (DESIGN.md §5.2): evidence quotes as hallucination checks.
 
-Every technique mention carries a quote, and that quote must appear as a
-substring of clean_text after normalization or the mention is dropped. This
-converts an unfalsifiable claim ("the report describes spearphishing") into a
-checkable one.
-
-Forgiven, because the HTML->text path and vendor CMSes introduce them while a
-model re-typing the sentence will not: whitespace runs, NFKC-foldable Unicode,
-and typographic variants with an ASCII equivalent (curly quotes, dashes).
-
-Not forgiven: case, because verbatim means verbatim and re-casing is paraphrase;
-and elision, because a quote is not evidence of what sits inside its "...".
-
-The length floor is a weaker second check: a span short enough to occur
-incidentally ("the attacker") is not evidence even when it is present.
+A technique mention's quote must appear in clean_text after normalization, or
+the mention is dropped. What normalization forgives, and what it refuses to:
+docs/DECISIONS.md#g3-evidence-quotes
 """
 
 from __future__ import annotations
@@ -26,8 +15,7 @@ from ingest.sanitize import normalize_whitespace
 
 MIN_QUOTE_CHARS = 20
 
-# Applied to both haystack and needle, so these are canonicalizations rather
-# than a relaxation of the match: the same input always lands on the same form.
+# Applied to both haystack and needle -- canonicalization, not a looser match.
 _CHARACTER_FOLDS = str.maketrans(
     {
         "‘": "'",  # left single quote

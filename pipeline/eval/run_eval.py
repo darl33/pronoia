@@ -5,19 +5,11 @@
     uv run python -m eval.run_eval --baseline-only      # no model calls, no cost
     uv run python -m eval.run_eval --limit 5            # smoke test
 
-It reads reference data from Postgres (attack_technique, threat_actor) so the
-closed-world and actor-resolution guardrails are the real ones, runs the live
-extraction path over every annotated fixture in `gold/`, scores it against the
-annotations, and writes a committed markdown scorecard per backend.
+Reads reference data from Postgres so the guardrails are the real ones, runs the
+live extraction path over every annotated fixture, scores it, and writes a
+committed scorecard per backend.
 
-**Backends (§7).** `--backend primary` is normal config resolution (§5.4);
-`--backend local` reads `EVAL_LOCAL_BASE_URL` / `EVAL_LOCAL_MODEL`, falling back
-to `LLM_BASE_URL` / `LLM_MODEL`. Separate variables for one reason: `--backend
-both` holds two configurations at once, and sharing them would collapse the
-comparison into a model against itself.
-
-**Cost.** One model call per document per backend. `--baseline-only` exercises
-the whole harness, metrics and gold-set validation included, with no API calls.
+Backend selection and cost: docs/DECISIONS.md#scorecards
 """
 
 from __future__ import annotations
@@ -101,9 +93,8 @@ def resolve_local_backend() -> CompletionConfig:
         source = "EVAL_LOCAL_BASE_URL" if _env("EVAL_LOCAL_BASE_URL") else "LLM_BASE_URL"
 
     if model is None:
-        # Unlike the pipeline's resolution this refuses to fall back to
-        # model_ids[0]: an unidentified model in a committed scorecard defeats
-        # the scorecard's whole point, which is being attributable.
+        # No fallback to model_ids[0] here: an unidentified model in a
+        # committed scorecard defeats the point of committing it.
         model = next((m for m in model_ids if "embed" not in m.lower()), None)
     if model is None:
         raise ConfigError(
@@ -118,8 +109,7 @@ def resolve_local_backend() -> CompletionConfig:
         api_key=api_key,
         native_sdk=False,
         source=source,
-        # /v1/models does not report a context window, so the conservative
-        # local pair stands unless the env overrides it.
+        # /v1/models reports no context window, so the conservative pair stands.
         max_input_tokens=resolve_max_input_tokens(LOCAL_MAX_INPUT_TOKENS),
         max_output_tokens=resolve_max_output_tokens(LOCAL_MAX_OUTPUT_TOKENS),
     )
@@ -148,8 +138,8 @@ def load_reference_data(engine):
 
 
 def check_budget(config: CompletionConfig) -> None:
-    """§5.4: a budget too small to fit any document is a config error, and it
-    is knowable before the first model call rather than during it."""
+    """A budget too small to fit any document is a config error, knowable
+    before the first model call (§5.4)."""
     try:
         document_budget_chars(
             config.max_input_tokens,
@@ -198,8 +188,7 @@ def report_gold_set(gold_set: GoldSet) -> None:
     for placeholder in gold_set.placeholders:
         log.info("  placeholder (not scored): %s", placeholder.id)
     for defect in gold_set.defects:
-        # Loud on purpose: a defect depresses the score for a reason that has
-        # nothing to do with the model.
+        # Loud on purpose: a defect depresses the score for a non-model reason.
         log.warning("  gold-set defect: %s", defect)
 
 
@@ -242,8 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.baseline_only:
-        # No scorecard: a scorecard is a claim about a (model, prompt_version)
-        # pair, and there is no model here. Print the floor and stop.
+        # No scorecard: it is a claim about a (model, prompt_version) pair.
         print(f"\nBaseline only — {len(fixtures)} document(s), prompt {version}\n")
         for field_name in ("actors", "techniques (parent)", "targets: countries",
                            "targets: sectors"):

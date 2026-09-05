@@ -1,16 +1,7 @@
 """Follow a feed entry's link and store the real article body (DESIGN.md §3, §6).
 
-ACSC publishes one-line teasers, so those raw_document rows held 85-300 chars
-and §5 extraction had nothing to work with. Talos ships full posts already.
-
-Following links out of feed *content* widens the SSRF surface, so it is
-narrowed three ways: `same_site` restricts targets to the feed's own host;
-everything still goes through `fetch_url` (https-only, DNS validated and
-pinned, redirects re-validated, 10 MB cap); and any failure falls back to the
-feed content rather than losing the document.
-
-same_site is the load-bearing one -- ssrf.py validates *addresses*, but only a
-same-site check stops feed content pointing us anywhere on the internet.
+Opt-in per feed via feed.fetch_articles. same_site is the security-relevant
+constraint. Rationale: docs/DECISIONS.md#article-bodies
 """
 
 from __future__ import annotations
@@ -25,8 +16,7 @@ from ingest.ssrf import validate_url_scheme
 
 log = logging.getLogger("ingest.article")
 
-# Under this, a feed entry is a teaser worth fetching properly; over it, the
-# feed already gave us the body (Talos averages ~11k).
+# Under this a feed entry is a teaser worth fetching properly.
 THIN_CONTENT_CHARS = 600
 
 # Less text than the teaser means the extraction picked the wrong container.

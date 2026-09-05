@@ -1,19 +1,7 @@
-"""IOC defanging (DESIGN.md §6: "All IOCs defanged at ingestion (hxxp, [.]);
-the *fanged* form is never stored or displayed").
+"""IOC defanging (DESIGN.md §6): only the defanged form is ever stored.
 
-Two things happen here, and the second matters more than the first:
-
-1. Defanging proper: hxxp/[.]/[:]/[@] substitution so a stored indicator can't
-   be clicked, resolved, or pasted into a browser by accident.
-
-2. Kind/value agreement. The `kind` field comes from the model, and defanging
-   is kind-specific -- so a mislabelled IOC is a defanging bypass. A live URL
-   emitted as kind='sha256' would be stored verbatim and fanged if we trusted
-   the label. Every value is therefore validated against its claimed kind and
-   dropped on mismatch, rather than being stored under a kind we can't defang.
-
-The fanged form exists only inside `defang_ioc`, to normalize input the model
-may have already defanged. It is never returned and never persisted.
+Also validates each value against its claimed kind -- a mislabelled IOC is a
+defanging bypass. Rationale: docs/DECISIONS.md#ioc-defang
 """
 
 from __future__ import annotations
@@ -72,8 +60,7 @@ def _defang(kind: str, value: str) -> str:
     if kind == "url":
         scheme, _, rest = value.partition("://")
         neutered_scheme = "hxxps" if scheme.lower() == "https" else "hxxp"
-        # Only the authority is dot-escaped; escaping dots in the path would
-        # corrupt the indicator (a filename in the path is part of the IOC).
+        # Authority only -- escaping path dots would corrupt the indicator.
         authority, slash, path = rest.partition("/")
         return f"{neutered_scheme}://{authority.replace('.', '[.]')}{slash}{path}"
     if kind in ("ipv4", "domain"):

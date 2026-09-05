@@ -1,11 +1,7 @@
-"""SQLAlchemy Core table definitions for the enrichment layer, mirroring
-db/migrations/20260725000001_enrichment_layer.sql and
-db/migrations/20260726000001_embedding_provenance.sql exactly, plus
-bound-parameter-only helpers (DESIGN.md §6: "SQLAlchemy bound parameters
-(Python); no string-built SQL anywhere").
+"""SQLAlchemy Core tables for the enrichment layer, mirroring db/migrations,
+plus bound-parameter-only helpers. Shares ingest.db's MetaData.
 
-Shares ingest.db's MetaData so raw_document is resolvable for the foreign keys
-and joins here; the schema itself is still owned by db/migrations.
+docs/DECISIONS.md#schema-ownership
 """
 
 from __future__ import annotations
@@ -65,9 +61,7 @@ enrichment_run = Table(
     Column("chunk_index", Integer),
 )
 
-# REPORT_EMBEDDING_DIM must equal the VECTOR(n) in the migration -- see the
-# README section "Changing the embedding model" for why that number is fixed at
-# first migration rather than being configurable.
+# REPORT_EMBEDDING_DIM must equal the migration's VECTOR(n).
 report = Table(
     "report",
     metadata,

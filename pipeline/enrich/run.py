@@ -1,12 +1,9 @@
 """Enrichment entrypoint: for every raw_document without a report, run the
 extraction, apply the guardrails, and write the rows that survive.
 
-    uv run python -m enrich.run [--limit N] [--document-id UUID]
+    uv run python -m enrich.run [--limit N]
 
-Transaction shape: each attempt's enrichment_run row is committed on its own,
-before the report is written. A failed or crashed run must still leave its
-audit trail (DESIGN.md §5.2 guardrail 1), which it wouldn't if the run rows
-shared a transaction with the report insert and rolled back with it.
+Transaction shape: docs/DECISIONS.md#transaction-shape
 """
 
 from __future__ import annotations
@@ -44,12 +41,8 @@ log = logging.getLogger("enrich.run")
 
 
 def _record_attempts(engine, document_id, model, version, outcome):
-    """Persist one enrichment_run row per attempt; return the id of an ok run.
-
-    Chunked documents (§5.3) get one row per chunk per attempt. The id returned
-    is the *first* ok run: report.enrichment_run_id is a single FK, so a merged
-    extraction has to name one chunk, and first is the only stable choice.
-    """
+    """Persist one enrichment_run row per attempt; return the id of the first ok
+    run. Chunked documents get one row per chunk per attempt."""
     ok_run_id = None
     for chunk_index, attempt in outcome.attempts:
         with engine.begin() as conn:
@@ -61,9 +54,8 @@ def _record_attempts(engine, document_id, model, version, outcome):
                 started_at=attempt.started_at,
                 finished_at=attempt.finished_at,
                 status=attempt.status,
-                # raw_response is JSONB and the whole point is auditing what the
-                # model said -- including when that wasn't valid JSON. Wrap the
-                # unparseable case as a JSON string so nothing is lost.
+                # JSONB column, but the point is auditing what the model said
+                # even when that was not valid JSON -- so wrap it as a string.
                 raw_response=json.dumps(attempt.raw_response) if attempt.raw_response else None,
                 attempt=attempt.attempt,
                 chunk_index=chunk_index,
@@ -74,12 +66,8 @@ def _record_attempts(engine, document_id, model, version, outcome):
 
 
 def _embed_summary(embedder, summary: str):
-    """Return (embedding, model, dim), or three Nones.
-
-    Never blocks a run (§5.4): failure leaves report.embedding NULL and the
-    document is still fully enriched. Embeds the summary, not clean_text, so it
-    fits any context window.
-    """
+    """Return (embedding, model, dim), or three Nones. Never blocks a run:
+    failure leaves report.embedding NULL and the document is still enriched."""
     if embedder is None:
         return None, None, None
 
@@ -181,8 +169,7 @@ def enrich_document(
     run_id = _record_attempts(engine, document_id, client.model, version, outcome)
 
     if outcome.was_chunked:
-        # A chunked document is a degraded extraction (§5.3): no call saw the
-        # whole text, so cross-chunk reasoning and a coherent summary are gone.
+        # A chunked document is a degraded extraction (§5.3).
         log.info("%r exceeded the context budget; extracted in %d chunks", title, outcome.chunk_count)
     for failed in outcome.failed_chunks:
         log.warning(
@@ -194,9 +181,8 @@ def enrich_document(
         )
 
     if outcome.truncated:
-        # Not a guardrail branch -- a truncated response fails the JSON parse
-        # like any other malformed output. It just has a different fix
-        # (raise max_tokens) and is worth naming in the log.
+        # Not a guardrail branch -- it already failed the JSON parse. Named
+        # separately because the fix is different (raise MAX_OUTPUT_TOKENS).
         log.warning("a response for %r was truncated (raise max_tokens)", title)
 
     if not outcome.succeeded:
@@ -283,18 +269,16 @@ def main() -> None:
     try:
         completion_config = resolve_completion()
     except ConfigError as exc:
-        # The message names the variable that fixes it (§5.4). Raising it as a
-        # SystemExit rather than a traceback keeps that message the last thing
-        # the reader sees.
+        # SystemExit, not a traceback: the message names the variable that
+        # fixes it and should be the last thing the reader sees.
         raise SystemExit(f"LLM config: {exc}\n\nRun `pronoia doctor` for the full picture.") from exc
 
     client = build_completion_client(completion_config)
     embedder = _resolve_embedder(completion_config)
     version = prompt_version()
 
-    # §5.4 "fail at config time, not mid-run": the budget depends only on
-    # config and the prompt files, so a value too small to fit any document is
-    # knowable now rather than on the first document of a long batch.
+    # §5.4 "fail at config time": the budget depends only on config and the
+    # prompt files, so an unusable one is knowable before the first document.
     try:
         document_budget_chars(
             completion_config.max_input_tokens,

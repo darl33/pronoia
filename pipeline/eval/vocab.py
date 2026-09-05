@@ -1,22 +1,16 @@
-"""Controlled vocabularies for the target field.
+"""Controlled vocabularies for the target field: the sector list and its synonym
+map, plus the country gazetteer the §7 baseline searches with.
 
-`normalize_sector` is applied to *both* sides before `score_sets`: without it
-"healthcare", "Health Care" and "health sector" are three answers and the sector
-metric measures spelling. `COUNTRY_NAMES` is how the §7 baseline finds target
-countries at all -- deliberately partial, see the note there.
-
-The sector list is the SOCI Act's critical infrastructure sectors (§1) plus the
-non-SOCI sectors common in CTI reporting. Anything outside it is left as-is and
-counted as off-vocabulary rather than coerced: "aerospace" should surface as a
-vocabulary gap to fix in the prompt, not disappear.
+normalize_sector is applied to both sides before scoring. Why the tables look
+the way they do: docs/DECISIONS.md#vocab
 """
 
 from __future__ import annotations
 
 import re
 
-# The scoring vocabulary. Gold annotations must use these strings exactly
-# (eval/gold/README.md); model output is mapped onto them via SECTOR_SYNONYMS.
+# The scoring vocabulary. Gold annotations use these strings exactly; model
+# output is mapped onto them via SECTOR_SYNONYMS.
 SECTORS: frozenset[str] = frozenset(
     {
         # SOCI Act sectors
@@ -43,10 +37,8 @@ SECTORS: frozenset[str] = frozenset(
     }
 )
 
-# Surface forms -> vocabulary. Only unambiguous mappings belong here; the
-# temptation is to add "utilities" (energy? water?) or "critical
-# infrastructure" (all of them), and guessing on those would fabricate
-# agreement between the model and the annotator.
+# Surface forms -> vocabulary. Unambiguous mappings only: "utilities" (energy?
+# water?) would fabricate agreement between model and annotator.
 SECTOR_SYNONYMS: dict[str, str] = {
     "telecom": "communications",
     "telecoms": "communications",
@@ -130,9 +122,8 @@ SECTOR_SYNONYMS: dict[str, str] = {
     "ngos": "ngo",
 }
 
-# Trailing nouns that add nothing: "energy sector" and "energy" are the same
-# answer. Stripped only *after* a direct lookup fails, so "defence industry"
-# resolves as itself rather than being truncated to "defence".
+# Trailing nouns that add nothing. Stripped only *after* a direct lookup
+# fails, so "defence industry" is not truncated to "defence".
 _TRAILING_NOUNS = (" sector", " sectors", " industry", " industries", " organisations",
                    " organizations", " organisation", " organization", " companies",
                    " entities", " providers", " operators")
@@ -174,16 +165,9 @@ def is_in_vocabulary(normalized_sector: str) -> bool:
 # ---------- countries ----------
 
 # Name/demonym -> ISO 3166-1 alpha-2, for the baseline's target extraction.
-#
-# Deliberately partial and deliberately hand-written. The baseline exists to
-# be beaten (§7): it establishes what a keyword matcher gets for free so the
-# LLM's lift is a number rather than an assertion. Growing this table would
-# make the baseline stronger without making it smarter, and the honest
-# limitation to state in the scorecard is "the baseline knows these names and
-# no others" -- which is only honest if the list is visible in one place.
-#
-# Case-insensitive. Two-letter abbreviations are handled separately below
-# because a case-insensitive "US" also matches the pronoun.
+# Deliberately partial and hand-written, and kept visible in one place:
+# docs/DECISIONS.md#vocab. Case-insensitive; two-letter abbreviations are
+# handled separately below because "US" folded also matches the pronoun.
 COUNTRY_NAMES: dict[str, str] = {
     "united states": "US", "america": "US", "american": "US",
     "united kingdom": "GB", "britain": "GB", "british": "GB", "england": "GB",
@@ -227,9 +211,7 @@ COUNTRY_NAMES: dict[str, str] = {
     "south africa": "ZA", "nigeria": "NG", "kenya": "KE",
 }
 
-# Abbreviations matched case-sensitively: lowercase "us" is a pronoun and
-# lowercase "in"/"it" are prepositions, so folding case here would put a
-# country on nearly every document.
+# Case-sensitive: lowercase "us"/"in"/"it" are a pronoun and prepositions.
 COUNTRY_ABBREVIATIONS: dict[str, str] = {
     "US": "US", "U.S.": "US", "USA": "US", "U.S.A.": "US",
     "UK": "GB", "U.K.": "GB",
@@ -246,9 +228,8 @@ def _alternation(terms) -> str:
     return "|".join(re.escape(term) for term in sorted(terms, key=len, reverse=True))
 
 
-# \b before a term starting with a letter and after one ending in a letter is
-# correct; the abbreviations ending in "." need a lookahead instead, since
-# there is no word boundary between "." and a following space.
+# \b works for terms bounded by letters; terms ending in "." need a lookahead,
+# since there is no word boundary between "." and a following space.
 COUNTRY_NAME_RE = re.compile(rf"\b(?:{_alternation(COUNTRY_NAMES)})\b", re.IGNORECASE)
 COUNTRY_ABBREVIATION_RE = re.compile(rf"\b(?:{_alternation(COUNTRY_ABBREVIATIONS)})(?![\w-])")
 
@@ -260,8 +241,8 @@ def find_countries(text: str) -> set[str]:
     return found
 
 
-# Sector surface forms the baseline searches for, longest-first. Built from the
-# vocabulary and its synonyms so the baseline and the scorer cannot drift.
+# Built from the vocabulary and its synonyms, longest-first, so the baseline
+# and the scorer cannot drift.
 _SECTOR_SURFACE_FORMS = sorted(
     set(SECTORS) | set(SECTOR_SYNONYMS), key=len, reverse=True
 )

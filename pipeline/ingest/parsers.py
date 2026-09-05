@@ -1,6 +1,6 @@
 """Turn a fetched feed body into zero or more ParsedDocument records, one per
-raw_document row to be stored. Supports the four `feed.kind` values from
-DESIGN.md §3/§4: rss, atom, html, json.
+raw_document row. Supports the four feed.kind values from DESIGN.md §3/§4:
+rss, atom, html, json.
 """
 
 from __future__ import annotations

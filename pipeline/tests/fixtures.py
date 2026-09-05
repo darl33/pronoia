@@ -28,9 +28,8 @@ has SHA-256 aaaaaaaabbbbbbbbccccccccddddddddaaaaaaaabbbbbbbbccccccccdddddddd.
 We assess with high confidence that this campaign is the work of FAKEBEAR.
 """
 
-# The same synthetic prose after html_to_clean_text has collapsed a sentence
-# across a line break -- used to prove the evidence check tolerates the
-# whitespace the sanitizer introduces.
+# The same prose with a sentence wrapped across a line break, as
+# html_to_clean_text would leave it.
 SYNTHETIC_REPORT_WRAPPED = SYNTHETIC_REPORT.replace(
     "carrying a malicious spreadsheet attachment",
     "carrying a malicious\nspreadsheet   attachment",

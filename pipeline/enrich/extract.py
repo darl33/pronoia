@@ -1,14 +1,9 @@
-"""Guardrail 1 (DESIGN.md §5.2): structured-output enforcement.
+"""Guardrail 1 (DESIGN.md §5.2): structured-output enforcement, and the
+document-level extraction path that chunks past the context budget (§5.3).
 
-Asking for JSON is not the control -- models wrap it in fences, prepend prose, or
-invent fields. The control is: strip fences, `Extraction.model_validate_json`,
-and on failure record `invalid_json` or `schema_fail` on the enrichment_run and
-retry once with the validation error appended.
-
-Two attempts, capped on purpose: a model that fails the contract twice with the
-error in front of it will not succeed on the third, and an uncapped retry loop
-against a paid API is how a pipeline quietly bankrupts itself. Failed attempts
-stay as rows, so recurring schema failure is visible in the data, not just logs.
+Strip fences, validate, retry once with the error appended, give up after two
+attempts. Rationale: docs/DECISIONS.md#g1-structured-output
+Chunking and merge: docs/DECISIONS.md#context-budget
 """
 
 from __future__ import annotations
@@ -31,12 +26,8 @@ _FENCE_RE = re.compile(r"^\s*```(?:json|JSON)?\s*\n(?P<body>.*?)\n?\s*```\s*$", 
 
 
 def strip_code_fences(text: str) -> str:
-    """Remove a single wrapping markdown fence, if present.
-
-    Only a fence enclosing the *whole* response is stripped. A response with
-    prose around a fenced block is a contract violation, not something to
-    salvage -- salvaging it would hide the failure from the eval in §7.
-    """
+    """Remove a single fence wrapping the *whole* response. Prose around a
+    fenced block is a contract violation, not something to salvage."""
     match = _FENCE_RE.match(text)
     return match.group("body") if match else text.strip()
 
@@ -50,9 +41,8 @@ class Attempt:
     raw_response: str | None
     error: str | None = None
     extraction: Extraction | None = None
-    # Carried from CompletionResult (DESIGN.md §5.3) for cost tracking and
-    # truncation detection. Recorded and logged, never branched on: the
-    # guardrail decides on the parse result alone, whatever the provider says.
+    # Recorded and logged, never branched on -- the guardrail decides on the
+    # parse result alone.
     input_tokens: int | None = None
     output_tokens: int | None = None
     stop_reason: str | None = None
@@ -72,10 +62,8 @@ class ExtractionOutcome:
 
 
 def parse_extraction(raw_response: str) -> tuple[Extraction | None, str, str | None]:
-    """Returns (extraction, status, error). Splitting invalid_json from
-    schema_fail is what makes the failure mode legible in enrichment_run:
-    the first says the model didn't emit JSON, the second says it emitted JSON
-    that isn't this contract."""
+    """Returns (extraction, status, error). invalid_json means the model did not
+    emit JSON; schema_fail means it emitted JSON that is not this contract."""
     cleaned = strip_code_fences(raw_response)
 
     try:
@@ -157,8 +145,7 @@ def run_extraction(
 @dataclass
 class ChunkOutcome:
     outcome: ExtractionOutcome
-    # None when the document fit in one call. NULL in enrichment_run then means
-    # "not chunked", which is the common case and shouldn't look like chunk 0.
+    # None when the document fit in one call; stored as NULL chunk_index.
     index: int | None
 
 
@@ -166,9 +153,8 @@ class ChunkOutcome:
 class DocumentOutcome:
     """One document's result, however many model calls it took.
 
-    A partially-failed chunked document still merges the chunks that worked --
-    the §5.3 degradation, versus discarding four good chunks for one bad one.
-    But that is silent under-extraction unless counted, which is `failed_chunks`.
+    A partially-failed chunked document still merges the chunks that worked, so
+    `failed_chunks` is what makes that under-extraction visible.
     """
 
     chunks: list[ChunkOutcome] = field(default_factory=list)
@@ -192,9 +178,8 @@ class DocumentOutcome:
 
     @property
     def attempts(self) -> list[tuple[int | None, Attempt]]:
-        """Every model call for this document, tagged with its chunk. Flattened
-        because guardrail 1 wants one enrichment_run row per attempt, and
-        chunking multiplies attempts rather than replacing them."""
+        """Every model call for this document, tagged with its chunk -- one
+        enrichment_run row per entry."""
         return [
             (chunk.index, attempt) for chunk in self.chunks for attempt in chunk.outcome.attempts
         ]
@@ -231,8 +216,7 @@ class DocumentOutcome:
 
 
 def _sum_tokens(attempts, attribute: str) -> int | None:
-    """None, not 0, when no attempt reported usage: some OpenAI-compatible
-    runtimes omit the usage block, and a cost of zero would be a lie."""
+    """None, not 0, when no attempt reported usage -- some runtimes omit it."""
     values = [getattr(attempt, attribute) for _, attempt in attempts]
     known = [value for value in values if value is not None]
     return sum(known) if known else None
@@ -250,14 +234,9 @@ def extract_document(
 ) -> DocumentOutcome:
     """Extract one document, chunking first if it exceeds the budget.
 
-    `render_user` is a callable, not a rendered string: each chunk needs its own
-    enclosure, and rendering it empty measures the prompt overhead exactly rather
-    than estimating it. Keeping the prompt files out of this module keeps
-    guardrail 1 portable across prompts and providers.
-
-    On a hosted backend this is one call behaving exactly as `run_extraction`
-    did -- the primary backend's §7 scores must not move because a fallback path
-    was added for a different one.
+    `render_user` is a callable because each chunk needs its own enclosure, and
+    rendering it empty measures the prompt overhead exactly. A document that
+    fits is a single call, identical to `run_extraction`.
     """
     budget = document_budget_chars(
         max_input_tokens, prompt_overhead_chars=len(system) + len(render_user(""))
