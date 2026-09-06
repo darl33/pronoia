@@ -1,0 +1,19 @@
+{
+  "id": "0013-defending-against-an-active-threat-to-siemens-s7",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0013-defending-against-an-active-threat-to-siemens-s7.txt",
+    "title": "Defending Against an Active Threat to Siemens S7 Series PLCs",
+    "source_url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-231a",
+    "source_kind": "cisa",
+    "published_on": "2026-08-14"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07448-7844-74cd-a5bf-240cc7dab38b; 9 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

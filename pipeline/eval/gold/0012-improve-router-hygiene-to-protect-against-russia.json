@@ -1,0 +1,19 @@
+{
+  "id": "0012-improve-router-hygiene-to-protect-against-russia",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0012-improve-router-hygiene-to-protect-against-russia.txt",
+    "title": "Improve Router Hygiene to Protect Against Russian State-Sponsored Targeting",
+    "source_url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-194a",
+    "source_kind": "cisa",
+    "published_on": "2026-07-08"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07448-786e-7adf-8263-29c2e156bdec; 18 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

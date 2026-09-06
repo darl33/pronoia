@@ -1,0 +1,19 @@
+{
+  "id": "0007-stopransomware-gunra-ransomware",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0007-stopransomware-gunra-ransomware.txt",
+    "title": "#StopRansomware: Gunra Ransomware",
+    "source_url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-222a",
+    "source_kind": "cisa",
+    "published_on": "2026-08-05"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07448-7850-7137-9896-c2de09a75e46; 6 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

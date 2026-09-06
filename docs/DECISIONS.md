@@ -89,6 +89,49 @@ template, so a rotating banner or build-id comment would produce a new
 request: the insert would deduplicate anyway, but only after re-requesting
 every article, every poll.
 
+### <a id="reference-data-is-not-a-feed"></a>Reference data is not a document feed
+
+The MISP galaxy was originally a `FeedSeed`, so its cluster JSON landed in
+`raw_document` and was queued for LLM enrichment as if it were a threat report —
+wasted calls and junk `report` rows. `refdata/misp.py` already loads it from its
+own URL. Reference data is loaded by `refdata/`, never polled as a feed.
+
+**`FEED_SEEDS` is additive only.** `upsert_feed_seed` inserts and updates; it
+never disables a feed that has been removed from the list, so a removed seed
+keeps polling from its existing `feed` row. Removing a feed properly means
+running `scripts/prune_documents.py --drop-feed`. Rejected: having `ingest.run`
+disable any feed absent from `FEED_SEEDS`, because that would silently kill a
+feed added directly to the database.
+
+### <a id="cisa-advisory-types"></a>Two CISA feeds, not one
+
+`all.xml` is dominated by ICS and product advisories — of the first 30 items
+fetched, every one was an ICS advisory or a KEV catalog update, and not one was
+an AA-numbered joint advisory. Those carry no actors and no technique
+descriptions, so they are nearly worthless as §7 gold-set material.
+
+`cybersecurity-advisories.xml` carries the AA series specifically: named actors,
+ATT&CK tables, and 15k–70k characters of body. Both feeds are polled. The ICS
+advisories are still legitimate CTI content and make good *negative* gold cases
+(the correct annotation is an empty actor list), but the gold set needs the AA
+series to measure anything else.
+
+### <a id="re-ingesting-a-feed"></a>Re-ingesting a feed after a parser change
+
+Dedup keys on a hash of the *feed entry*, which does not change when the way we
+process that entry changes. So the ACSC rows ingested before `fetch_articles`
+existed stayed 85–300 character teasers forever: the next poll deduped them
+before the article fetch could run.
+
+`scripts/prune_documents.py` deletes a feed's documents and everything derived
+from them, and clears `etag` / `last_modified` / `last_polled_at` so the next
+poll actually re-fetches instead of getting a 304. It is dry-run by default and
+requires `--apply`, because it cascades through `report` and is not reversible.
+
+Rejected: making the hash cover the processed text instead, which would tie
+document identity to the publisher's template and mint a new `raw_document`
+every time a banner changed.
+
 ### <a id="attack-bundle-cap"></a>Raising the size cap for the ATT&CK bundle
 
 The 10 MB transport cap is a decompression-bomb defense for untrusted feed
@@ -577,6 +620,43 @@ Evidence-quote validity is recomputed rather than read off `validate_extraction`
 drop list, which checks the closed world first and short-circuits: a hallucinated
 ID never reaches the quote check, so counting drops would shrink the denominator
 and flatter the rate. §7 wants the rate over every quote the model wrote.
+
+### <a id="exporting-fixtures"></a>Exporting fixtures from ingested documents
+
+`eval/export_fixture.py` turns a `raw_document` into a fixture stub. Everything
+it writes is `status: "placeholder"`, never `annotated` — the harness skips
+placeholders, so an exported-but-unannotated fixture can never be scored as
+though its empty annotation were a real "this document names nobody".
+
+Candidates are *ranked*, not filtered: distinct ATT&CK IDs written out, threat
+vocabulary, and length. The ranking only orders what a human then picks from —
+auto-selecting would quietly bias the gold set toward documents that look like
+what the baseline can already find. Reference-data feeds (`kind = 'json'`) are
+excluded outright; they are not threat reports.
+
+### <a id="defanging-fixtures"></a>Defanging exported fixtures
+
+Real advisories carry live IOCs, and CLAUDE.md forbids those anywhere in the
+repo including fixtures, so `defang_text` scans an exported document and
+defangs everything it finds. This is scanning, unlike `defang_ioc`, which
+validates one already-extracted value against its claimed kind.
+
+**Over-defanging is the safe direction.** A mangled version string costs an
+annotator nothing; a live indicator committed to a public repo is the rule this
+exists to keep. Two consequences worth knowing:
+
+- The IPv4 pattern uses lookarounds rather than `\b`, because `\b` matches
+  *inside* longer dotted-decimal runs and quietly mangled an SNMP OID
+  (`1.3.6.1.4.1.9.9.96.1.1`) into a half-defanged string. A four-part version
+  number is still defanged, which is harmless.
+- A small allowlist (cisa.gov, mitre.org, nist.gov, …) stays fanged, checked on
+  the *host* rather than the whole URL. Defanging those would corrupt the prose
+  without making anything safer, and an annotator needs them readable.
+
+**The measurement caveat:** the model reads the defanged text, not what the
+publisher wrote. IOCs are not a scored field so the headline metrics are
+unaffected, and evidence quotes stay self-consistent because the quote is
+checked against the same defanged text the model was given.
 
 ### <a id="gold-set"></a>The gold set
 

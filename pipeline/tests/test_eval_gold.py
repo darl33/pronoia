@@ -8,6 +8,7 @@ exactly like a model failure.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -38,11 +39,12 @@ def test_shipped_gold_set_loads_clean(indexes):
         GOLD_DIR, technique_index=technique_index, actor_index=actor_index
     )
 
+    # Counts are not pinned: fixtures get exported as placeholders over time.
     assert [f.id for f in gold_set.fixtures] == [
         "0001-volt-typhoon-utilities",
         "0002-fin7-health-ransomware",
     ]
-    assert len(gold_set.placeholders) == 3
+    assert gold_set.placeholders, "exported fixtures should load as placeholders"
     assert gold_set.defects == []
 
 
@@ -207,3 +209,36 @@ def test_target_needs_a_country_or_a_sector(tmp_path):
 )
 def test_normalize_sector(surface, expected):
     assert normalize_sector(surface) == expected
+
+
+# ---- exported fixtures (eval/export_fixture.py) ----
+
+
+def test_every_exported_fixture_is_a_placeholder():
+    """An export is never annotated, so the harness can never score an empty
+    annotation as if it were a real "this document names nobody"."""
+    gold_set = load_gold_set(GOLD_DIR)
+    for fixture in gold_set.placeholders:
+        assert fixture.status == "placeholder"
+        assert not fixture.annotation.actors
+        assert not fixture.annotation.techniques
+        assert fixture.annotated_by is None
+
+
+def test_no_fanged_indicator_survives_in_any_fixture():
+    """CLAUDE.md forbids live indicators anywhere in the repo, fixtures
+    included, and exported documents are real advisories."""
+    fanged = re.compile(
+        r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\.?\d)"    # bare IPv4
+        r"|https?://"                                     # clickable scheme
+        r"|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"  # bare email
+    )
+    allowed_hosts = ("cisa.gov", "cyber.gov.au", "mitre.org", "nist.gov", "github.com")
+
+    for path in sorted(GOLD_DIR.glob("*.txt")):
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for match in fanged.finditer(line):
+                context = line[max(0, match.start() - 40): match.end() + 40]
+                assert any(host in context for host in allowed_hosts), (
+                    f"{path.name}:{line_number} looks like a live indicator: {context!r}"
+                )

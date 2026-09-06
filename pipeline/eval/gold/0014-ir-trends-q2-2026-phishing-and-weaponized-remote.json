@@ -1,0 +1,19 @@
+{
+  "id": "0014-ir-trends-q2-2026-phishing-and-weaponized-remote",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0014-ir-trends-q2-2026-phishing-and-weaponized-remote.txt",
+    "title": "IR Trends Q2 2026: Phishing and weaponized remote management tools drive attack chains",
+    "source_url": "https://blog.talosintelligence.com/ir-trends-q2-2026/",
+    "source_kind": "vendor_blog",
+    "published_on": "2026-07-28"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 019fdf57-de72-7898-ad2b-e4735201f147; 0 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

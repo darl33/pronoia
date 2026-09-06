@@ -1,0 +1,19 @@
+{
+  "id": "0021-the-serpent-s-tongue-luring-the-python-out-of-it",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0021-the-serpent-s-tongue-luring-the-python-out-of-it.txt",
+    "title": "The serpent\u2019s tongue: Luring the Python out of its den",
+    "source_url": "https://blog.talosintelligence.com/the-serpents-tongue-luring-the-python-out-of-its-den/",
+    "source_kind": "vendor_blog",
+    "published_on": "2026-07-14"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 019f9f68-25d5-74ac-b36b-4f729ab8af2d; 3 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

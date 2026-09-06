@@ -1,0 +1,19 @@
+{
+  "id": "0018-uat-11795-deploys-novel-starland-rat-and-bespoke",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0018-uat-11795-deploys-novel-starland-rat-and-bespoke.txt",
+    "title": "UAT-11795 deploys novel Starland RAT and bespoke WLDR C2 implant in financially motivated campaign",
+    "source_url": "https://blog.talosintelligence.com/uat-11795-deploys-novel-starland-rat-and-bespoke-wldr-c2-implant-in-financially-motivated-campaign/",
+    "source_kind": "vendor_blog",
+    "published_on": "2026-07-16"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 019f9f68-25bf-79eb-9960-df0f79857e25; 1 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

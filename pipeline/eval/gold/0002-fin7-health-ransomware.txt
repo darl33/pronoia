@@ -40,8 +40,8 @@ copies were removed.
 
 Indicators of compromise
 
-  198.51.100.203   staging host
-  203.0.113.77     secondary staging host
+  198[.]51[.]100[.]203   staging host
+  203[.]0[.]113[.]77     secondary staging host
   hxxps://updates-remittance[.]invalid/agent   second-stage retrieval
 
 MITRE ATT&CK techniques

@@ -1,0 +1,19 @@
+{
+  "id": "0020-dissecting-the-jwr-phishing-framework",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0020-dissecting-the-jwr-phishing-framework.txt",
+    "title": "Dissecting the JWR phishing framework",
+    "source_url": "https://blog.talosintelligence.com/dissecting-the-jwr-phishing-framework/",
+    "source_kind": "vendor_blog",
+    "published_on": "2026-08-13"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07447-49ca-7625-bf31-8dc3be3312c3; 0 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

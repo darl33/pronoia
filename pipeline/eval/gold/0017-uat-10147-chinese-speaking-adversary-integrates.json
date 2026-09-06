@@ -1,0 +1,19 @@
+{
+  "id": "0017-uat-10147-chinese-speaking-adversary-integrates",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0017-uat-10147-chinese-speaking-adversary-integrates.txt",
+    "title": "UAT-10147: Chinese-speaking adversary integrates agentic AI into post-compromise operations",
+    "source_url": "https://blog.talosintelligence.com/uat-10147-chinese-speaking-adversary-integrates-agentic-ai-into-post-compromise-operations/",
+    "source_kind": "vendor_blog",
+    "published_on": "2026-08-20"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07447-49b3-7016-b43c-e55797a4c363; 9 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

@@ -27,3 +27,6 @@ web/node_modules/
 web/dist/
 web/.vite/
 npm-debug.log*
+
+# --- personal working notes, not part of the repo ---
+notes/

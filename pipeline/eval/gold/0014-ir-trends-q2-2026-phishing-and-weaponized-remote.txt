@@ -1,0 +1,289 @@
+Phishing was the primary means of gaining initial access this quarter, appearing in over half of all Cisco Talos Incident Response (Talos IR) engagements – an increase from approximately a third of engagements last quarter. Attackers continued to innovate their delivery methods to evade defenses, deploying QR code-embedded PDFs to bypass traditional email gateways and hosting links on trusted cloud platforms. We also saw a spike in authentication abuse this quarter — observed in 65 percent of engagements compared to 35 percent last quarter — with attackers frequently bypassing or defeating multi-factor authentication (MFA) using adversary-in-the-middle (AitM) proxies, session-token theft, MFA fatigue attacks, and self-enrolled devices, amongst other methods.
+Ransomware incidents made up over 20 percent of engagements this quarter, similar to just under 20 percent last quarter. Talos IR responded to Sinobi ransomware for the first time, as well as previously seen variants Nitrogen and Warlock. We observed ransomware operators leveraging legitimate remote monitoring and management (RMM) tools, such as trojanized MeshAgent binary and Zoho Assist, for stealthy access, requiring defenders to prioritize behavior-based monitoring and strict control over administrative binaries.
+In the latest Talos Threat Perspective episode, we explore these trends, and highlight where defenders have the best opportunities to detect attackers:
+QR phishing campaign leverages trusted infrastructure to target Australian organizations
+Starting in April, we observed a persistent QR code phishing campaign targeting primarily Australian organizations that leverages compromised Microsoft 365 accounts to harvest credentials and propagate the attack via internal contact lists. The campaign, which remained ongoing as of late June 2026, employs auto-generated, victim-tailored PDF documents containing QR codes that direct to adversary-controlled M365 credential harvesting pages. If credentials are successfully captured, the adversary attempts access to the victim’s Microsoft account and conducts various post-compromise actions including creating email inbox rules for defense evasion, leveraging SharePoint to host malicious documents, and sending additional internal and external phishing emails to continue the compromise chain.
+We assess with high confidence that the threat actor, who we have dubbed UAT-11764, will almost certainly continue leveraging this QR code phishing operation, using each newly compromised mailbox's contact lists to expand its reach and sustain the campaign's momentum. By weaponizing existing, trusted infrastructure like SharePoint and M365, UAT-11764 can bypass many standard email security gateways. As such, network defenders should implement policies that block or flag emails containing QR codes within PDF attachments, enforce phishing-resistant MFA on M365 accounts, and monitor for suspicious inbox rule creation and anomalous SharePoint file staging as indicators of post-compromise activity.
+ARToken platform provides toolkit for Microsoft 365 account compromise
+Talos
+uncovered
+a phishing-as-a-service (PhaaS) operator platform, ARToken, in an engagement this quarter that is closely linked to the EvilTokens platform. According to our analysis, the ARToken panel exposes 80+ API endpoints for device code phishing, primary refresh token (PRT) persistence, email access, business email compromise (BEC) operations, and SharePoint exfiltration — all accessible to operators through a React-based dashboard. Our investigation into the platform found phishing lures that impersonate trusted vendors and abuse legitimate Microsoft services, allowing attackers to bypass MFA through the OAuth device authorization flow rather than stealing passwords.
+ARToken extends beyond a typical phishing kit by providing affiliates with a comprehensive post-compromise toolkit. We observed capabilities including automated token management, persistent access through PRTs, OneDrive and SharePoint administration, geo-dynamic templates, inbox rule manipulation, cross-account keyword monitoring, and collaborative token sharing. We also identified advanced anti-analysis techniques, including layered evasion mechanisms and encrypted client-side payloads, highlighting the increasing sophistication of modern PhaaS platforms and reinforcing the need for organizations to monitor device code authentication, enforce Conditional Access policies, and strengthen defenses against token-based attacks.
+Ransomware trends
+Ransomware and pre-ransomware incidents made up over 20 percent of engagements this quarter, relatively similar to just under 20 percent last quarter. As previously mentioned, Talos IR responded to Sinobi ransomware for the first time, as well as previously seen variants Nitrogen and Warlock. We observed operators from these groups leveraging tools not previously identified in public reporting, including a trojanized MeshAgent binary and Zoho Assist for remote access.
+Sinobi ransomware operators weaponize MeshAgent for covert backdoor access
+We responded to a Sinobi ransomware engagement for the first time in April; while this ransomware-as-a-service (RaaS) operation emerged nearly a year ago, there has been minimal public reporting on the actors’ operations.
+Notably, we observed the threat actors use a trojanized MeshAgent binary as their primary C2 mechanism during this engagement, a tactic that has not been previously associated with the group in public reporting. MeshAgent is the open-source agent component of the MeshCentral remote management platform. Here, the actor weaponized it into a covert durable backdoor installed as a SYSTEM-level auto-start service, communicating over encrypted WebSocket (WSS) to an attacker-controlled server. This approach allowed the actor to blend malicious traffic with legitimate remote management activity and maintain undetected access for approximately three days before ransomware deployment.
+Following C2 establishment, the actor moved laterally through the network using RDP and WinRM, leveraging a service account with a weak, easily cracked password obtained from the domain credential store, ntds.dit. The actor ultimately deployed the ransomware across the entire domain using a malicious Group Policy Object (GPO) logon script. The incident resulted in the encryption of systems with the .SINOBI file extension, alongside observed data exfiltration staging activity conducted via rclone.exe.
+Looking forward, Sinobi operators will likely continue weaponizing legitimate tools like MeshAgent because these binaries blend into standard administrative traffic and bypass many traditional signature-based alerts. The use of GPO-based deployment scripts suggests an understanding of enterprise architecture, and operators will likely continue to exploit centralized management features to ensure rapid, domain-wide encryption. Defenders should prioritize monitoring of administrative tools and implement strict application allowlisting to prevent unauthorized binaries from running as services. Further, proactive hunting for unauthorized MeshAgent instances and auditing service account permissions may help in identifying and disrupting Sinobi activity before encryption.
+Warlock actors deploy Zoho Assist to attempt remote access without active user sessions
+In one engagement, we observed Warlock ransomware operators (also known as Storm-2603) deploying an installer for the RMM tool Zoho Assist Unattended Agent, which is designed to allow administrative remote control of an endpoint without a user logged in. The tool, which we have not previously seen attributed to Warlock, enables the attackers to maintain persistent, stealthy, and unrestricted control, significantly increasing the potential malicious impact of an incident.
+While the activity in this particular did not lead to encryption, it was consistent with a successful Warlock ransomware attack Talos observed in May. To counter this threat, organizations must shift from signature-based detection to behavior-based monitoring, focusing on the specific tactics, techniques, and procedures (TTPs) utilized by Storm-2603, such as the abuse of legitimate administrative tools and rapid movement within the network.
+Targeting
+For the second quarter in a row, health care led as the most targeted industry vertical accounting for 17 percent of all engagements, with public administration and manufacturing following at 14 percent each. A shared characteristic of these top-targeted sectors is a critical lack of downtime tolerance. The vast majority of targeted health care organizations were entities that directly support clinical operations and/or diagnostic services, where service interruption can result in operational and patient-care consequences. Almost all targeted public administration organizations were local governments, which provide essential public services, while the targeted manufacturing entities represented high-value targets within the industrial supply chain, where potential disruptions could create cascading effects across the downstream technology and energy sectors.
+Initial access
+As mentioned, phishing was the top means of gaining initial access this quarter, accounting for over half of engagements where initial access could be determined — an increase from 35 percent last quarter. Many phishing engagements included MFA-bypass techniques, such as OAuth device-code phishing and AiTM frameworks, allowing adversaries to intercept session tokens. Other observed means of achieving initial access included exploitation of public-facing applications and drive-by compromise.
+Recommendations for addressing top security weaknesses
+Implement properly configured, phishing-resistant MFA and tighten authentication controls
+Authentication abuse was the most prevalent security weakness this quarter, observed in 65 percent of engagements — up sharply from 35 percent last quarter. Adversaries consistently defeated or bypassed MFA using AitM proxies and session-token theft, MFA fatigue attacks, registration of attacker-controlled devices for authentication, and legacy authentication protocols that circumvent MFA altogether. To reduce this risk, Talos IR recommends transitioning from push- and SMS-based MFA to phishing-resistant methods such as FIDO2/WebAuthn and hardware security keys. Organizations should also restrict self-service MFA enrollment by requiring helpdesk verification, block legacy authentication through Conditional Access, enforce number matching or verified push where phishing-resistant methods are not yet feasible, and condition access on device compliance and trusted infrastructure rather than geographic location alone.
+Configure centralized logging with adequate retention across the environment
+Insufficient logging and visibility was the second most common weakness, observed in 42 percent of engagements compared to 18 percent last quarter. Deficiencies included domain controller security logs retained for only a few hours, host event logs truncated or overwritten before capture, absent NetFlow that prevented reconstruction of external authentication and exfiltration, on-device-only logs that adversaries deleted to evade detection, and short cloud-telemetry retention that did not extend back to the true initial-access date. In several engagements these gaps prevented definitive determination of the initial access vector or the scope of data exfiltration. Talos IR recommends implementing a SIEM or centralized logging platform with a minimum of 90 days of retention, forwarding logs from servers, workstations, network infrastructure, cloud identity providers, and security appliances off-device so they survive log tampering and host rebuilds, and enabling process-creation, command-line, and cloud API (e.g., Microsoft Graph) auditing. Talos IR's
+Log Architecture Assessment
+service can identify gaps and provide a roadmap to a complete view of the environment.
+Conduct robust patch management and reduce exposed infrastructure
+Vulnerable, exposed, or unpatched internet-facing infrastructure was the third most common weakness, observed in 31 percent of engagements, similar to last quarter’s 25 percent.  A variety of different vulnerabilities were targeted including ToolShell, an older Telerik UI deserialization flaw, and SD-WAN and perimeter-VPN appliance CVEs. Internet-exposed services were also subjected to SQL-injection and denial-of-service activity. Talos IR recommends identifying and prioritizing the patching or decommissioning of all end-of-life and externally exposed systems, isolating systems that cannot be immediately upgraded, restricting management plane and remote access services behind a VPN or trusted source, deploying a Web Application Firewall (WAF) with rules for known exploitation patterns, and establishing a vulnerability management process capable of rapidly identifying and patching exposed assets — particularly given the accelerating reduction in time between vulnerability disclosure and exploitation.
+Enforce strict outbound email thresholds to disrupt attack propagation
+Finally, unlimited outbound email thresholds were a notable security weakness this quarter, enabling threat actors to propagate malicious activity in almost 15 percent of engagements. Though not as prevalent as the above weaknesses, it was more frequently observed than in previous quarters and warrants mention. For example, in one engagement, a user clicked on a malicious phishing email that led to credential theft and account compromise. Shortly after the threat actors gained access to the user’s mailbox, they sent over 6,600 phishing and spam emails to continue the attack chain. The failure to contain the compromise via outbound rate limiting significantly amplifies the damage of a single compromised credential; implementing these controls is a low-effort, high-impact mitigation strategy that effectively disrupts the attack chain.
+Top-observed MITRE ATT&CK techniques
+The table below represents the MITRE ATT&CK techniques observed in this quarter’s Talos IR engagement. Given that some techniques can fall under multiple tactics, we grouped them under the most relevant tactic in which they were leveraged. Please note this is not an exhaustive list.
+Key findings from the MITRE ATT&CK framework include:
+Consistent with phishing being a top threat this quarter, email hiding rules was the most observed tactic for persistence while internal spearphishing was most seen for lateral movement.
+Use of valid accounts was frequently observed for both privilege escalation and persistence, highlighting how identity abuse remains a key theme across engagements.
+Actors also relied on legitimate tools and web protocols to challenge detection, abusing native email features and cloud APIs, relying on standard web protocols for C2, and using valid administrative credentials for RDP and SSH.
+
+Tactic
+
+Technique
+
+Example
+
+Reconnaissance (TA0043)
+
+T1598 Phishing for Information
+
+Adversaries may send phishing messages to elicit sensitive information that can be used during targeting.
+Phishing for
+information is an attempt to trick targets into divulging information,
+frequently
+credentials or other actionable information.
+
+T1595 Active Scanning
+
+Adversaries may execute active reconnaissance scans to gather information that can be used during targeting.
+
+T1593 Search Open Websites/Domains
+
+Adversaries may search open websites and domains to gather information about a victim that can be used during targeting.
+
+T1589 Gather Victim Identity Information
+
+Adversaries may gather information about the victim's identity that can be used during targeting.
+
+Initial Access (
+TA0001
+)
+
+T1566 Phishing
+
+Adversaries may send phishing messages to gain access to victim systems.
+
+T1190 Exploit Public-Facing Application
+
+Adversaries may exploit
+a vulnerability
+to gain access to a target system.
+
+T1078 Valid Accounts
+
+Adversaries may use compromised credentials to access valid accounts during their attack.
+
+Execution (TA0002)
+
+T1204.001 User Execution: Malicious Link
+
+An adversary may rely upon a user
+clicking
+a malicious link
+in order to
+gain execution. Users may be subjected to social engineering to get them to click on a link that will lead to code execution.
+
+T1078 Valid Accounts
+
+Adversaries may obtain and abuse credentials of existing accounts to access systems within the network and execute their payload.
+
+Persistence (TA0003)
+
+T1564.008 Hide Artifacts: Email Hiding Rules
+
+Adversaries may use email rules to hide inbound emails in a compromised user's mailbox. Many email clients allow users to create inbox rules for various email functions, including moving emails to other folders, marking emails as read, or
+deleting
+emails.
+
+T1663 Remote Access Software
+
+Adversaries may use legitimate remote access software, such as VNC, TeamViewer,
+AirDroid
+,
+AirMirror
+, etc., to
+establish
+an interactive command and control channel to target mobile devices.
+
+T1053 Scheduled Task/Job
+
+Adversaries may abuse task scheduling functionality to
+facilitate
+initial or recurring execution of malicious code.
+
+T1133 External Remote Services
+
+Adversaries may
+leverage
+external-facing remote services to initially access and/or persist within a network. Remote services such as VPNs, Citrix, and other access mechanisms allow users to connect to internal enterprise
+network resources from external locations.
+
+T1078 Valid Accounts
+
+The adversary may compromise a valid account to move through the network to
+additional
+systems.
+
+Defense
+Impairment
+(TA0
+112
+)
+
+T1687 Exploitation for Defense Impairment
+
+Adversaries may exploit vulnerabilities in security software, infrastructure, or defensive components to degrade, disable, or otherwise continue to impair their ability to prevent, detect, or respond to malicious activity.
+
+T1078 Valid Accounts
+
+Adversaries may obtain and abuse credentials of existing accounts as a means of gaining Initial Access, Persistence, Privilege Escalation, or Defense Evasion.
+
+T1484 Domain or Tenant Policy Modification
+
+Adversaries may
+modify
+the configuration settings of a domain or identity tenant to evade defenses and/or escalate privileges in centrally managed environments.
+
+Stealth (TA0005)
+
+T1564.008 Hide Artifacts: Email Hiding Rules
+
+Adversaries may use email rules to hide inbound or outbound emails in a compromised user's mailbox.
+
+T1070 Indicator Removal
+
+Adversaries may
+delete
+or modify artifacts generated within systems to remove evidence of their presence or hinder defenses.
+
+Credential Access (TA0006)
+
+T1111 Multi-Factor Authentication Interception
+
+Adversaries may target MFA
+mechanisms, (
+i.e., smart cards, token generators, etc.) to gain access to credentials that can be used to access systems, services, and network resources.
+
+T1621 Multi-factor Authentication Request Generation
+
+Adversaries may
+attempt
+to bypass MFA mechanisms and gain access to accounts by generating MFA requests sent to users.
+
+T1110.003 Brute Force: Password spraying
+
+Adversaries may use a single or small list of commonly used passwords against many different accounts to
+attempt
+to
+acquire
+valid account credentials.
+
+Discovery (
+TA0007
+)
+
+T1018 Remote System Discovery
+
+Adversaries may
+attempt
+to get a listing of other systems by IP address, hostname, or other logical identifier on a network that may be used for Lateral Movement from the current system.
+
+T1083 File and Directory Discovery
+
+Adversaries may
+enumerate
+files and directories or may search in specific locations of a host or network
+share
+for certain information within a file system.
+
+T1087 Account Discovery
+
+Adversaries may
+attempt
+to get a listing of valid accounts, usernames, or email addresses on a system or within a compromised environment.
+
+T1082 System Information Discovery
+
+An adversary may
+attempt
+to get detailed information about the operating system and hardware, including version, patches, hotfixes, service packs, and architecture.
+
+T1526 Cloud Service Discovery
+
+An adversary may
+attempt
+to enumerate the cloud services running on a system after gaining access.
+
+Lateral Movement (TA0008)
+
+T1021.001 Remote Services: Remote Desktop Protocol
+
+Adversaries may use Valid Accounts to log into a computer using the Remote Desktop Protocol (RDP). The adversary may then perform actions as the logged-on user.
+
+T1534 Internal
+Spearphishing
+
+After they already have access to accounts or systems within the environment, adversaries may use internal
+spearphishing
+to gain access to
+additional
+information or
+compromise
+other users within the same organization.
+
+T1021.004 Remote Services: SSH
+
+Adversaries may use Valid Accounts to log into remote machines using SSH. The adversary may then perform actions as the logged-on user.
+
+Command and Control (TA0011)
+
+T1219 Remote Access Software
+
+An adversary may use legitimate remote access tools to
+establish
+an interactive command and control channel within a network.
+
+T1071.001 Application Layer Protocol: Web Protocols
+
+Adversaries may communicate using application layer protocols associated with web traffic to avoid detection/network filtering by blending in with existing traffic.
+
+T1102 Web Service
+
+Adversaries may use an existing, legitimate external Web service as a means for relaying data to/from a compromised system.
+
+T1572 Protocol Tunneling
+
+Adversaries may tunnel network communications to and from a victim system within a separate protocol to avoid detection/network filtering and/or enable access to otherwise unreachable systems.
+
+Exfiltration (TA0010)
+
+T1567 Exfiltration Over Web Service
+
+Adversaries may use an existing, legitimate external Web service to exfiltrate data rather than their primary command and control channel.
+
+T1048 Exfiltration Over Alternative Protocol
+
+Adversaries may exfiltrate data over a different protocol than the
+command and control
+channel.
+
+Impact (TA0040)
+
+T1486 Data Encrypted for Impact
+
+Adversaries may use ransomware to encrypt data on a target system
+.

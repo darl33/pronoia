@@ -1,0 +1,19 @@
+{
+  "id": "0006-countering-chinese-state-sponsored-actors-compro",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0006-countering-chinese-state-sponsored-actors-compro.txt",
+    "title": "Countering Chinese State-Sponsored Actors Compromise of Networks Worldwide to Feed Global Espionage System",
+    "source_url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-239a",
+    "source_kind": "cisa",
+    "published_on": "2025-08-25"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07448-7899-7248-ab6b-9f55cb9f1c6a; 23 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

@@ -1,0 +1,1100 @@
+Advisory at a Glance
+
+Title
+
+A Tale of Two SOCs: Insights From Two Red Team Assessments
+
+Original Publication
+
+August 25, 2026
+
+Executive Summary
+
+The Cybersecurity and Infrastructure Security Agency (CISA) conducted simultaneous red team assessments at two organizations and observed different defensive outcomes. In both environments, the red team achieved full domain compromise and accessed sensitive business systems (SBSs) and cloud resources. Organization A failed to detect or contain the activity, but Organization B rapidly identified initial compromise attempts, isolated affected systems, and forced the red team into an assume breach model.
+
+This advisory details the red team’s activity and organizations’ defensive actions, offering lessons learned and mitigations to help critical infrastructure organizations strengthen detection, response, and protections in IT, cloud, and operational technology (OT) environments.
+
+Lessons Learned
+
+Untuned detection tools lead to missed threats
+. Without well-defined baselines and alert filtering, false positives and routine alerts overwhelm network defenders.
+
+Organizational silos and bureaucratic hurdles prevent effective incident response
+. Detection tools are only as effective as the people, processes, and procedures supporting them; fragmented communication, unclear responsibilities, and limited defender authority hinder effective incident response.
+
+Cloud environments are often an underestimated risk
+. Organizations often lack security controls for cloud environments and processes for responding to a cloud compromise.
+
+Key Actions
+
+Establish and continuously maintain a baseline and reduce alert noise
+by fine tuning.
+
+Break down silos and empower network defenders
+.
+
+Implement Conditional Access policies for workload identities
+and monitor for excessive or unused permissions.
+
+Establish and regularly review comprehensive procedures for detecting, remediating, and revoking access/refresh tokens
+in the event of a cloud compromise.
+
+Intended Audience
+
+Organizations:
+Federal Civilian Executive Branch agencies; state, local, tribal, and territorial governments; critical infrastructure.
+
+Roles:
+
+System administrators
+,
+incident responders
+,
+defensive cybersecurity analysts
+,
+vulnerability analysts
+,
+network operators
+,
+security systems managers
+, and all network defenders.
+
+Introduction
+
+The Cybersecurity and Infrastructure Security Agency’s (CISA’s) red team simulates real‑world malicious cyber operations to assess an organization’s ability to detect, investigate, and respond to malicious cyber activity. Emulating cyber threat actor tradecraft, the red team attempts to gain and maintain persistent access to an organization’s network and sensitive business systems (SBSs) while avoiding detection.
+
+CISA conducted two simultaneous red team assessments using similar tradecraft but observed different defensive responses. In one organization (Organization A), the team gained initial access to multiple workstations, gained elevated privileges over the domain, and moved laterally to SBSs and cloud resources undetected. In the second organization (Organization B), network defenders quickly detected the initial compromise and quarantined the affected systems.
+
+Because Organization B detected the initial compromise, the red team moved to an assume breach model, where Organization B trusted agents (TAs) provided access to a host that replicated the level of access the red team would have had if defenders had not detected their activity. From there, the red team escalated privileges and moved laterally to SBSs, cloud resources, and a bastion host in the OT demilitarized zone (DMZ), where defenders again detected activity and isolated the system.
+
+In coordination with the assessed organizations, CISA is releasing this Cybersecurity Advisory to describe the red team’s activity and the organization’s defensive responses and to share lessons learned that critical infrastructure organizations can use to strengthen their IT, cloud, and OT cybersecurity posture.
+
+CISA encourages critical infrastructure organizations to implement the recommendations in the
+Mitigations
+
+section of this advisory to reduce the likelihood and impact of malicious cyber incidents.
+
+Download the PDF version of this report:
+
+A Tale of Two SOCs: Insights From Two Red Team Assessments
+
+(PDF, 937.09 KB
+)
+
+Technical Details
+
+Note:
+This advisory uses the
+MITRE ATT&CK
+®
+Matrix for Enterprise
+framework, version 19. See the
+MITRE ATT&CK Tactics and Techniques
+section of this advisory for a table of the red team’s activity mapped to MITRE ATT&CK tactics and techniques.
+
+Overview
+
+CISA is authorized—upon request—to provide analyses, expertise, and other technical assistance to critical infrastructure owners and operators and to provide operational and timely technical assistance to federal and non-federal entities, with respect to cybersecurity risks (see generally 6 U.S.C. §§ 652[c][5], 659[c][6]). CISA conducted two concurrent red team assessments: one at a
+Government Services and Facilities Sector
+organization (Organization A), and one at a
+Water and Wastewater Systems Sector
+organization (Organization B).
+
+During CISA’s red team assessments, the red team simulates malicious cyber operations to assess an organization’s threat detection and response capabilities. The red team attempts to gain and maintain persistent access to an organization’s enterprise network, avoid detection, evade defenses, and access SBSs (applications, data stores, or infrastructure components where compromise would materially impact the organization's operations, finances, or customer data) selected by the organization. For the assessments described in this advisory, the team also attempted to gain access to cloud resources and to demonstrate their ability to access Organization B’s OT systems without actually doing so.
+
+Organization A
+
+Red Team Cyber Threat Activity
+
+Initial Access and Active Directory Discovery
+
+During reconnaissance, CISA’s red team identified a web application with default credentials [
+T1589.001
+] for multiple built-in user accounts that allowed the team to send emails from an internal email address. The team used the internal email address to send phishing emails [
+T1566
+] and gained initial access to four workstations.
+
+From the workstations, the red team leveraged a modified BloodHound
+1
+collector, customized to avoid static endpoint detection and response (EDR) signatures, to query and scrape Active Directory (AD) information. This information included AD users [
+T1087.002
+], computers [
+T1018
+], groups [
+T1069.002
+], access control lists, organizational units, and group policy objects (GPOs) [
+T1615
+]. The team found that one compromised workstation had the default Machine Account Quota (MAQ) of 10, allowing unprivileged users to add up to 10 computer accounts to the domain.
+
+The red team also queried the organization’s Active Directory Certificate Service (ADCS) certificate templates. Misconfigured ADCS templates are common and can allow low-privileged accounts to request a certificate on behalf of other users and computers, including highly privileged accounts. The team identified multiple templates with an ESC1 misconfiguration, which allows any user to request certificates for all users and computer accounts (see scenario ESC1 in SpecterOp’s
+Certified Pre-Owned: Abusing Active Directory Certificate Services
+). The red team exploited the misconfigured MAQ to create a machine account [
+T1136.002
+] and then exploited a misconfigured ADCS template to request a certificate for the newly created machine account [
+T1649
+]. They could then obtain certificates for any user account, providing means for lateral movement.
+
+Post Exploitation: Privilege Escalation and Lateral Movement
+
+Sensitive Business Systems
+
+After the red team gained elevated privileges over the domain, they began post-exploitation activities and attempted to access SBSs. To access the SBSs, the team needed to identify their network location and security controls.
+
+The team’s plan to achieve SBS access included the following steps:
+
+Use previously acquired AD data to identify users and groups related to the SBS.
+
+Query system center configuration manager (SCCM) servers to enumerate user-device relationships and identify the workstations assigned to each user [
+T1033
+].
+
+Move laterally from the SCCM server to the target users’ workstations.
+
+Find credential material on the target user’s workstation to access the SBS.
+
+Verify administrative access to the SBS would allow compromise of the availability, integrity, and/or confidentiality of the system and its data.
+
+For each SBS, the red team used similar discovery and initial access techniques but unique credential retrieval methods. For SBS 1, a database, the team located cleartext credentials on an administrative user’s workstation providing access to the system [
+T1552
+]. For SBS 2, also a database, the red team searched the targeted user’s workstations for
+connections.json
+and
+product-preferences.xml
+files for a Structured Query Language (SQL) developer tool. The team decrypted these files to obtain the cleartext password to the database [
+T1552.001
+]. For SBS 3, an automated processing system, the red team acquired long-lived static Amazon Web Service (AWS) identity and access management (IAM) user credentials saved in configuration files in targeted users’ home directories. These credentials do not expire because the organization had not configured credential expiration or rotation.
+
+For SBS 2 and 3, the red team expanded access beyond users’ physical workstations to include their virtual desktops, which limited their access to the active, interactive sessions held by users. While virtual workstations add security controls, such as segmenting networks of sensitive systems to only allow virtual hosts, they are generally synchronized with a root drive of the distributed file system (DFS). The red team compromised the root DFS drive, granting them access to local files of all users’ virtual desktops, regardless of the existence of an active session. This allowed the team to quickly search for cloud configuration files containing credentials and database connection files for thousands of users.
+
+The red team obtained administrative access to all targeted SBSs without defensive intervention by proxying tools [
+T1090.001
+] through compromised workstations and using the collected credentials.
+
+Microsoft Entra Systems
+
+After compromising the target SBSs, the red team attempted to compromise Organization A’s Microsoft cloud environment by compromising Organization A’s Microsoft Entra ID (formerly Azure AD) through applications. The team targeted Entra ID applications with Application permissions, which allow applications to access data without user consent (compared to Delegated permissions, which allow applications to access data with user consent). By compromising an application that had elevated Application permissions, the red team would gain the same permissions as the application because these applications operate outside the scope of traditional conditional access policies (CAPs) that provide controls for user access and activity.
+
+Note:
+Microsoft’s
+Conditional Access for workload identities
+extends traditional CAPs to service principals (SPs) used by applications and governs Application permissions by allowing organizations to broadly apply access policies to applications. Implementing Conditional Access for workload identities would have protected against red team exploiting use of Application permissions; however, the red team never observed an organization using Conditional Access for workload identities.
+
+The team compromised applications and used their permissions by:
+
+Enumerating the organization’s cloud resources using the publicly available tools, including AzureHound
+2
+and ROADrecon,
+3
+to gather information about applications, their permissions, and their owners [
+T1526
+] [
+T1588.002
+].
+
+Identifying applications with elevated permissions to the Microsoft Graph Resource application programming interface (API), including the following:
+
+Mail.Read
+– Read Outlook emails.
+
+Mail.ReadWrite
+– Read and write Outlook emails.
+
+Chat.Read.All
+– Access Teams messages.
+
+Files.Read.All
+– Access OneDrive.
+
+Application.ReadWrite.All
+– Add Client Secrets to any application or SP.
+
+AppRoleAssignment.ReadWrite.All
+– Lets an SP grant itself powerful Graph application permissions such as
+Chat.Read.All
+or
+RoleManagement.ReadWrite.Directory
+.
+
+Identifying the owner of an application with
+Mail.ReadWrite
+permissions.
+
+Moving laterally to the owner’s machine.
+
+Obtaining access to the user’s primary refresh token (PRT).
+
+A PRT is a secure artifact specifically issued to Microsoft first-party token brokers to enable single sign-on (SSO) across the applications used on those devices. For more information about PRT, see Microsoft’s
+Understanding Primary Refresh Token (PRT) in Microsoft Entra ID
+.
+
+Using the PRT to request access and refresh tokens for the targeted application’s owner.
+
+Access tokens
+are short-lived tokens issued by Entra ID that grant a client permission to access specific resources or APIs on behalf of a user.
+
+Refresh tokens
+are longer-lived tokens issued by Entra ID that allow a client to silently request new access tokens without requiring the user to sign in again.
+
+Using the access token to add a new client secret to the target application.
+
+A
+client secret
+is a confidential string used by the application to authenticate itself to Entra ID during token requests.
+
+Using the new client secret to request a new access token for the target application.
+
+Impersonating the application by using the access token [
+T1550.001
+] to retrieve and review target emails [
+T1114
+] via the Microsoft Graph API.
+
+This allowed the red team to review security operations center (SOC) staff emails to see if SOC staff were aware of the compromise.
+
+Organization A’s Response
+
+The organization did not respond effectively to red team activity. The red team observed this during their engagement by accessing SOC personnel emails and moving laterally to SOC workstations where they captured screenshots [
+T1113
+], used keyloggers [
+T1056.001
+], and retrieved Microsoft Teams messages [
+T1213.005
+].
+
+The red team observed that the SOC received medium- and low-severity EDR alerts related to the red team activity but did not respond to them. Thousands of false positive alerts corresponding to normal business operations, many with a higher severity, obscured the alerts triggered by red team activity.
+
+Organizational silos further hindered detection and response. The organization had multiple SOCs and multiple EDR solutions. Staff did not communicate with staff from other SOCs or have visibility on their detection tools. SOC staff and system owners also did not communicate with each other.
+
+This led to SOC staff not actioning alerts from red team activity. For example, red team members noted chat exchanges regarding an SCCM in which defenders tried and failed to identify the system owner, its function, and its typical use. The SOC team eventually flagged the alert as a false positive.
+
+The red team believes this was because the SOC staff lacked standard operating procedures for escalating alerts and had limited personnel authority.
+
+Organization B
+
+Red Team Cyber Threat Activity
+
+Initial Access
+
+The CISA red team gained initial access to Organization B’s environment through a spearphishing campaign. The team gathered email addresses from public websites [
+T1589.002
+] and sent phishing emails that eventually led to three users clicking [
+T1204
+] on a malicious link, giving the red team access to three workstations.
+
+Each payload execution generated a medium-severity alert: “An executable file loaded an unexpected DLL file.” SOC staff triaged these alerts and manually isolated all three workstations within 10, 2, and 20 minutes. This effectively terminated the team’s command and control (C2) communications with the workstations. Before staff isolated one workstation, the red team enumerated Organization B’s domain’s AD structure by executing various Lightweight Directory Access Protocol (LDAP) queries through the callback. The data gathered included all users, groups, computers, domains, GPO, and subsequent relationships for the entire domain.
+
+Because the defenders removed their initial foothold, the red team switched to an assume breach model. Organization B’s TAs (organization IT staff who knew of the assessment and were in contact with the red team) executed a red-team-provided payload on a designated internal host. This host was associated with a standard user account with no administrative privileges, replicating the same level of access the red team would have maintained if Organization B’s defenders had not detected them.
+
+Domain Compromise
+
+With persistent access to the internal network, the red team searched for ways to escalate their privileges over the domain to facilitate lateral movement and access SBSs. The red team used the assume breach account to query the MAQ attribute of Organization B’s domain and discovered that all domain users were able to add accounts to the domain.
+
+The red team created a new machine account with a hostname designed to resemble a legitimate host. The creation of the machine account provided the red team with a domain account and a password that they controlled. This allowed them to execute standalone tools from a red-team-controlled Linux workstation. The tool’s traffic was proxied through the assume breach host, circumventing restrictions imposed by host-based EDR.
+
+The red team did not identify any escalation paths from the AD data; however, enumeration of SCCM distribution points led to the discovery of an XML file with cleartext credentials for a domain service account. AD data showed that the newly acquired service account had outbound object control over almost 1,000 accounts within the domain due to its group membership. Most notably, the service account had
+AllExtendedRights
+permission over a domain controller, which enabled the team to conduct a resource-based constrained delegation attack, granting them DCSync privileges [
+T1003.006
+] and the ability to obtain AD account credentials. The team used these credentials throughout the remainder of their assessment to access servers and workstations. One of the first accounts the red team DCSynced was the
+krbtgt
+account, which a malicious cyber actor could use to forge Golden Tickets that allow for impersonation of any user in Organization B’s domain.
+
+Post Exploitation
+
+Sensitive Business Systems
+
+The TAs provided the names of two SBSs, one of which the red team successfully compromised. To do this, the team reviewed previously collected BloodHound data and identified a user account with access to an SBS web server that allowed Kerberos authentication. Because the red team had already compromised the on-premises (on-prem) AD environment, they could impersonate this user to access the server.
+
+The team:
+
+Used DCSync to acquire the user’s AES256 password hash.
+
+Used the password hash to request a Kerberos ticket-granting ticket (TGT) for the user.
+
+Used the TGT to request a Kerberos service ticket [
+T1558
+] for the web server’s service principal name (SPN).
+
+After requesting the Kerberos service ticket, the red team imported it into a Windows virtual machine (VM) on their infrastructure. The red team configured their VM to proxy any traffic to Organization B’s network through a SOCKS proxy that tunneled traffic through a compromised host.
+
+Operational Technology Network
+
+The red team wanted to gain visibility of the OT network and identify OT network subnets. To do this, they first identified an IT workstation with Remote Desktop Protocol (RDP) files, including a file named
+ics-[redacted]-org
+, signifying that the user likely had remote access to the OT network. The red team identified that the workstation had remote access to a bastion host. A bastion host—sometimes referred to as a jump box or jump server—is a specialized, highly secured system (often a server or dedicated workstation) that serves as the sole access point between a network segment (such as an internal IT network) and a protected internal network (like an OT environment).
+
+The red team gained access to this bastion host using File Transfer Protocol (FTP) credentials to log in over Secure Shell (SSH) [
+T1021.004
+]. At this point, they had visibility over the OT network.
+
+They attempted to gain a C2 session on the server by dropping several payload files on the host and executing them. However, the callback never reached red team infrastructure because the host blocked outbound internet connections. The payload execution triggered an alert that led SOC staff to quarantine the host.
+
+Microsoft Entra Systems
+
+The red team attempted to access Organization B’s cloud-based Entra ID infrastructure to find a way to move from on-prem AD to the cloud. Organization B had a hybrid environment, and user credentials automatically synchronized between on-prem AD and cloud Entra ID. Given this, the red team looked for the on-prem server responsible for synchronization.
+
+Entra ID Connect (formerly Azure AD Connect) sets up an on-prem account with the prefix
+MSOL_
+to synchronize credentials with Entra ID. The red team used the open source tool ADConnectDump
+4
+
+to obtain cleartext credentials for the on-prem Microsoft Online (MSOL) account and the Entra ID account
+Sync_[redacted]
+[
+T1003
+]. With cleartext credentials for
+Sync_[redacted]
+, the red team logged into the Azure portal.
+Sync_[redacted]
+was not intended for interactive logins and, in this case, did not have multifactor authentication (MFA) enabled. However, the red team used this account to obtain access tokens for use with AzureHound and ROADrecon to gather Entra ID data for Organization B’s tenant.
+
+Note:
+The red team obtained cleartext MSOL credentials and logged into the Azure portal because MSOL accounts used to have a large number of permissions; Microsoft has since removed these permissions. See Microsoft’s
+Action required: MSOnline and AzureAD PowerShell retirement - 2025 info and resources
+and
+Important update: Deprecation of Azure AD PowerShell and MSOnline PowerShell modules
+for more information.
+
+The interactive login from
+Sync_[redacted]
+triggered an automated alert from Microsoft, which sent the information to Organization B’s SOC staff, who then blocked the suspicious activity.
+
+The red team identified a computer account containing
+AZURESSO
+in its name, located in the on-prem AD environment. This account is part of the Seamless SSO implementation and allows users to use Kerberos tickets as the first step in authenticating to Entra ID. To abuse Seamless SSO, the red team acquired encrypted credentials of a target user via DCSync and then used the Rubeus “asktgs” module to request service tickets used for SSO. The red team imported the service tickets to their workstation and proxied their traffic through Organization B’s network using a SOCKS proxy. This allowed them to browse to hxxps://portal[[.]]azure[.]com, while using legitimate Kerberos tickets, and the traffic appeared to originate from a trusted IP address.
+
+This approach allowed the red team to gain access to Entra ID as any user synced to AD without the user’s cleartext password. However, they could only use Kerberos tickets for the first phase of the sign-in process. If a user was set up to use MFA, then Entra ID would prompt the red team for a second factor during the sign-in process. Therefore, the red team was only able to log into any Entra ID account that did not have MFA enabled, which seemed limited to service accounts. They reviewed the previously obtained Entra ID data and looked for applications that had excessive permissions and were accessible to AD-synced service accounts.
+
+The red team identified an application that had permission to read, write, and send emails for all users within Organization B’s tenant. The application was owned by an AD-Synced account that was disabled in AD. Using a compromised host in the on-prem environment, they re-enabled this account, DCSynced its credentials, and used the AES256 hash to request Kerberos tickets. The red team used the tickets to authenticate to Entra ID and were then able to add a client secret to the application. This gave them the ability to retrieve the emails of every user within Organization B’s environment from the public internet.
+
+Organization B’s Response
+
+Organization B quickly triaged and responded to alerts after the red team gained initial access, effectively terminating the team’s C2 communications with the workstations and leading the red team to move to an assume breach model. These actions demonstrated a mature, proactive security posture and helped prevent wider compromise.
+
+When the red team gained access to a bastion host in the OT DMZ, Organization B had defensive controls that blocked outbound connections to red team infrastructure, and SOC staff quickly triaged and responded to an alert by isolating the host.
+
+When the red team logged into the organization’s Azure portal via a compromised account, it triggered an automated alert from Microsoft, which led the staff to block the suspicious account. In addition, Organization B had custom detections Entra ID Risky User Alerts for “Unfamiliar sign-in properties” and “Suspicious API traffic” that alerted to the AzureHound user agent and to accounts exceeding predefined request thresholds to the Microsoft Graph API.
+
+See
+Table 1
+for Organization B’s defensive measures and associated response.
+
+Table 1
+. Red Team Activity and Organization B SOC Response
+
+Red Team Activity
+
+Defensive Measure
+
+SOC Response
+
+Outcome
+
+C2 payload executed on a workstation.
+
+Payload execution generated a medium-severity alert.
+
+Staff quarantined workstation; staff analyzed and reimaged before putting workstation back online.
+
+Red team lost access to a workstation.
+
+C2 payload executed on a second workstation.
+
+Payload execution generated a medium-severity alert.
+
+Staff quarantined workstation; staff analyzed and reimaged before putting workstation back online.
+
+Red team lost access to a workstation.
+
+C2 payload executed on a third workstation.
+
+Payload execution generated a medium-severity alert.
+
+Staff quarantined workstation; staff analyzed and reimaged before putting workstation back online.
+
+Red team lost access to a workstation.
+
+C2 payload executed on bastion host in the OT DMZ.
+
+Payload execution generated alerts.
+
+Staff quarantined the host.
+
+Red team lost access to the host.
+
+Used compromised Entra ID account to log into Azure.
+
+Automated alert from Microsoft.
+
+Staff blocked the account.
+
+Red team compromised a different account and accessed Entra ID by abusing Seamless SSO.
+
+Despite these strengths, Organization B had areas for improvement. The red team was eventually able to access Entra ID through a computer account that was part of the organization’s Seamless SSO implementation. The account did not have MFA and had overly permissive application permissions, indicating the need for more mature cloud security processes.
+
+Additionally, Organization B had excessive permissions and misconfigurations in AD and service accounts, which the red team leveraged for privilege escalation. This highlights the importance of regular audits and strict enforcement of least privilege principles. Organization B could improve credential hygiene, as the red team found credentials for OT systems stored in plaintext on jump servers. Finally, while segmentation and egress controls were effective, ongoing review and tightening of IT/OT connectivity and access architectures would reduce opportunities for lateral movement.
+
+Lessons Learned
+
+The red team identified lessons learned based on each organization’s response. Organization A and Organization B contrasted significantly in their ability to quickly identify and respond to red team activity. However, similar gaps in both organizations contributed to the red team’s compromise of their cloud systems.
+
+Untuned Detection Tools Lead to Missed Threats
+
+Organization A did not tune their detection tools to reduce alert noise, leading to an unmanageable level of alerts for SOC staff to review and action. The same red team activity that triggered alerts and action for Organization B led to no response for Organization A because SOC staff did not identify the activity as potentially malicious amid the overwhelming volume of alerts. Organization B had an established baseline and a fine-tuned alert system, allowing defenders to effectively filter out routine business activity and false positives. As a result, anomalies stood out, enabling the SOC staff to quickly detect and respond to red team activity.
+
+Without well-defined baselines and alert filtering, false positives and routine alerts overwhelm defenders, obscuring real threats. Organizations that tune alerts to highlight anomalies and filter out normal business activity enable defenders to focus on genuine incidents and respond rapidly.
+
+Organizational Silos and Bureaucratic Hurdles Prevent Effective Incident Response
+
+In Organization A, lack of communication and visibility created by organizational silos (among multiple SOCs and between SOC staff and system owners) hindered effective incident response, resulting in missed opportunities for identification of a major breach.
+
+Bureaucratic barriers arose because SOC staff managed systems without understanding their authorities as responsibilities and authorities varied across network segments. They had no escalation procedures and so defaulted to a “wait and see” approach.
+
+In contrast, Organization B empowered its defenders to act decisively. Staff quickly triaged alerts, investigated root causes, identified misconfigurations, and coordinated remediation with engineering.
+
+Detection tools are only as effective as the people, processes, and procedures supporting them. SOC staff should not operate in silos and should have clear authority unhindered by bureaucracy to effectively contain and resolve incidents.
+
+Organizations Underestimate Risks in Cloud Environments
+
+Both organizations underestimated the risks associated with cloud environments. They granted excessive permissions to cloud applications, allowing the red team to access cloud systems. They also lacked fully mature, defined processes for detecting and remediating compromise of cloud environments, allowing the red team to maintain access to cloud resources.
+
+Use of Long-Lived User Identity and Access Management Credentials
+
+Organization A used long-lived static IAM user credentials that were set to never expire. If a malicious actor obtains them, they will have all the user permissions, potentially enabling persistent, unrestricted access to the cloud environment.
+
+Excessive Permissions
+
+Both organizations lacked Conditional Access for workload identities. This feature extends Conditional Access beyond user accounts, covering non-human identities, such as applications. It allows organizations to broadly apply access policies to applications that control how and when the application is used to access resources. Instead, both organizations used broad application permissions for most apps, which the team was able to exploit for access to the environment. In both organizations, the team was able to exploit excessive permissions to read emails.
+
+Lack of Mature Remediation Processes for Tokens
+
+Both organizations lacked processes for revoking compromised access/refresh tokens. Without a well-defined, efficient process for remediating and revoking access/refresh tokens following a cloud compromise, malicious cyber actors evicted from on-prem environments may still leverage cloud access to regain entry. Organizations should establish mature procedures to detect and remediate compromises of cloud environments to prevent malicious cyber actors from reestablishing access.
+
+Issues
+
+The red team identified the following issues that contributed to their ability to maintain persistent access to Organization A and/or B and escalate privileges or move laterally:
+
+Misconfigured ADCS templates
+.
+
+In Organization A, the red team identified and exploited a certificate template with common template misconfiguration known as ESC1, an overly permissive certificate template where the
+CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT
+flag is enabled and low-privileged users can request certificates. This allows malicious actors to impersonate users. See SpecterOp’s
+Certified Pre-Owned: Abusing Active Directory Certificate Services
+for information about the ESC1 misconfiguration.
+
+Workstations where MAQ was misconfigured
+.
+
+In Organization A, the team gained access to a workstation where the MAQ was set to the default value of 10. This meant that unprivileged users could add up to 10 computer accounts to the domain.
+
+In Organization B, the MAQ was set to 1,000 for all domain users, allowing any user to create a large number of machine accounts.
+
+Service accounts with excessive permissions
+.
+
+In Organization B, the red team identified a domain service account with
+AllExtendedRights
+permission over a domain controller.
+AllExtendedRights
+enables malicious cyber actors to perform DCsync attacks and potentially impersonate any account in the domain, leading to full domain compromise.
+
+Cleartext credentials.
+
+In Organization A, the red team found and used cleartext credentials to obtain administrative access to SBSs.
+
+In Organization B, the red team identified a cleartext password in an XML file for a domain service account.
+
+Endpoint management systems that lacked additional security controls
+.
+
+In Organization A, the red team moved laterally from the SCCM server to users’ workstations. SCCM and other endpoint configuration managers (e.g., Jamf, BigFix) have broad administrative reach and are Tier 0 assets. If compromised, Tier 0 assets provide malicious actors with powerful escalation paths and control over the enterprise.
+
+The red team identified an additional issue that was not exploited during the assessment but could be exploited by malicious cyber actors:
+
+AD misconfigurations and user accounts with excessive permissions.
+
+In Organization B, the red team discovered that standard user accounts were improperly assigned to privileged administrative groups within the AD.
+
+MITRE
+ATT&CK Tactics and Techniques
+
+See
+Table 2
+to
+Table 11
+for all referenced threat actor tactics and techniques in this advisory.  For assistance with mapping malicious cyber activity to the MITRE ATT&CK framework, see CISA and MITRE ATT&CK’s
+Best Practices for MITRE ATT&CK Mapping
+and CISA’s
+Decider Tool
+.
+
+Table 2
+. Reconnaissance
+
+Technique Title
+
+ID
+
+Use
+
+Gather Victim Identity Information: Credentials
+
+T1589.001
+
+The red team performed reconnaissance and identified a web application with default credentials.
+
+Gather Victim Identity Information: Email Addresses
+
+T1589.002
+
+The red team performed reconnaissance and gathered employee email addresses from public websites.
+
+Table 3. Resource Development
+
+Technique Title
+
+ID
+
+Use
+
+Obtain Capabilities: Tool
+
+T1588.002
+
+The red team used publicly available tools, including AzureHound and ROADrecon.
+
+Table 4. Initial Access
+
+Technique Title
+
+ID
+
+Use
+
+Phishing
+
+T1566
+
+The red team gained initial access to four Organization A workstations by sending phishing emails from an internal email address.
+
+The red team gained initial access to three Organization B workstations via spearphishing emails that eventually led users to click on a malicious payload.
+
+Table 5. Execution
+
+Technique Title
+
+ID
+
+Use
+
+User Execution
+
+T1204
+
+The red team’s spearphishing emails eventually led to users clicking on a malicious payload.
+
+Table 6. Persistence
+
+Technique Title
+
+ID
+
+Use
+
+Create Account: Domain Account
+
+T1136.002
+
+The red team exploited misconfigured MAQs to create machine accounts on a workstation.
+
+Table 7. Credential Access
+
+Technique Title
+
+ID
+
+Use
+
+Unsecured Credentials
+
+T1552
+
+The red team located cleartext credentials on an administrative user’s workstation.
+
+The red team used the open source tool ADConnectDump to obtain cleartext credentials for cloud accounts.
+
+Unsecured Credentials: Credentials In Files
+
+T1552.001
+
+The red team searched a targeted user’s workstations for
+connections.json
+and
+product-preferences.xml
+files for a SQL Developer tool. They then decrypted these files to obtain cleartext password to the database.
+
+The red team acquired long-lived static AWS IAM user credentials in configuration files in users’ home directories.
+
+OS Credential Dumping
+
+T1003
+
+The red team obtained cleartext credentials for an on-prem MSOL account and Entra account.
+
+OS Credential Dumping: DCSync
+
+T1003.006
+
+The red team used DCSync to obtain AD account credentials.
+
+Steal or Forge Authentication Certificates
+
+T1649
+
+The red team could obtain certificates for any Organization A user account. This provided the means for lateral movement.
+
+Steal or Forge Kerberos Tickets
+
+T1558
+
+The red team used a Kerberos TGT to request a Kerberos service ticket for a web server’s SPN.
+
+The red team used the Rubeus “asktgs” module to request service tickets used for SSO.
+
+Table 8. Discovery
+
+Technique Title
+
+ID
+
+Use
+
+Account Discovery: Domain Account
+
+T1087.002
+
+The red team used a BloodHound collector to query and scrape AD information, including AD users.
+
+Remote System Discovery
+
+T1018
+
+The red team used a BloodHound collector to query and scrape AD information, including computers.
+
+Permission Groups Discovery: Domain Groups
+
+T1069.002
+
+The red team used a BloodHound collector to query and scrape AD information, including groups.
+
+Group Policy Discovery
+
+T1615
+
+The red team used a BloodHound collector to query and scrape AD information, including GPOs.
+
+System Owner/User Discovery
+
+T1033
+
+The red team queried SCCM servers to enumerate user-device relationships and identify the workstations assigned to users.
+
+Cloud Service Discovery
+
+T1526
+
+The red team used publicly available tools to obtain a list of Entra applications, their permissions, and their owners.
+
+Table 9. Lateral Movement
+
+Technique Title
+
+ID
+
+Use
+
+Use Alternate Authentication Material: Application Access Token
+
+T1550.001
+
+The red team used an application access token to access and review cloud emails.
+
+Remote Services: SSH
+
+T1021.004
+
+The red team used FTP credentials to log into a bastion host over SSH.
+
+Table 10. Collection
+
+Technique Title
+
+ID
+
+Use
+
+Email Collection
+
+T1114
+
+The red team reviewed Organization A SOC staff cloud emails to see if SOC staff were aware of the compromise.
+
+The red team had the ability to retrieve the emails of every user within Organization B’s environment from the public internet.
+
+Screen Capture
+
+T1113
+
+The red team took screenshots of SOC staff workstations.
+
+Input Capture: Keylogging
+
+T1056.001
+
+The red team used keyloggers on SOC staff workstations.
+
+Data from Information Repositories: Messaging Applications
+
+T1213.005
+
+The red team pulled Microsoft Teams messages from SOC staff workstations.
+
+Table 11
+. Command and Control
+
+Technique Title
+
+ID
+
+Use
+
+Proxy: Internal Proxy
+
+T1090.001
+
+The red team proxied through compromised workstations.
+
+Mitigations
+
+CISA recommends that organizations implement the mitigations below to strengthen their cybersecurity posture based on the
+Lessons Learned
+and identified
+Issues
+. These mitigations align with the
+Cross-Sector Cybersecurity Performance Goals (CPGs)
+developed by CISA and the National Institute of Standards and Technology (NIST). The CPGs provide a minimum set of practices and protections that CISA and NIST recommend all organizations implement. CISA and NIST based the CPGs on existing cybersecurity frameworks and guidance to protect against the most common and impactful threats, tactics, techniques, and procedures. Visit CISA’s
+CPGs webpage
+for more information on the CPGs, including additional recommended baseline protections.
+
+Establish Baselines and Improve Monitoring
+
+Establish and continuously maintain a baseline of installed tools and software, account behavior, and network traffic
+.
+
+Reduce alert noise
+by refining monitoring tools and alerting mechanisms to differentiate between typical administrative actions and potential threat behavior.
+
+For information on establishing a baseline and reducing alert noise, see CISA’s joint Guidance
+Identifying and Mitigating Living Off the Land Techniques
+.
+
+Eliminate Silos and Bureaucratic Hurdles
+
+Break down silos
+by encouraging regular communication and collaboration between IT, security, and business units.
+
+Consider using joint exercises, shared tools, and creating cross-functional teams.
+
+Integrate detection with incident response workflows to enable rapid containment and remediation.
+
+Empower network defenders
+.
+
+Develop and communicate policies [
+CPG 1.A
+,
+CPG 1.B
+] that support rapid, coordinated response and clarify when defenders can act independently versus when escalation is required.
+
+Define clear roles and responsibilities so defenders know their authorities and escalation paths (if needed) during incidents.
+
+Grant defenders the authority to take necessary actions (e.g., isolating systems, blocking traffic) without excessive approvals.
+
+Conduct training and simulated incident response exercises to reinforce roles, improve coordination, and identify gaps in authorities or communication [
+CPG 6.A
+].
+
+Enhance Cloud Security Controls
+
+Note:
+While both organizations used Microsoft Entra ID and Organization B also used AWS, many of the techniques used by the red team are applicable across identity providers and cloud environments and not necessarily unique to Microsoft and AWS. CISA encourages all organizations using cloud environments to implement the recommendations below.
+
+Secure and monitor access/refresh tokens and establish and regularly review comprehensive procedures for detecting, remediating, and revoking access/refresh tokens
+in the event of a cloud compromise.
+
+Implement automated token revocation and access reviews and conduct periodic incident response exercises to validate the effectiveness of these processes.
+
+Restrict access based on trusted network locations, device compliance, and risk signals (such as unusual activity or sign-in patterns).
+
+Monitor sign-in logs and policy evaluation results for workload identities to detect suspicious activity.
+
+Regularly check application permissions; make a risk-informed decision to identify and remove any that are not necessary, so each application only has the access it needs to function.
+
+Regularly audit SP credentials and rotate secrets or certificates to reduce exposure.
+
+Identify and disable legacy accounts.
+
+Enable phishing-resistant MFA
+for all user, administrative, and privileged accounts in cloud platforms [
+CPG 3.F
+].
+
+Protect keys and secrets by storing them securely
+and enforcing mandatory rotation schedules; apply cryptographic boundary controls to internal and third-party credentials.
+
+Set up automated alerts for suspicious cloud application activity
+, such as abnormal API calls, and credential activity, such as login attempts from unusual locations.
+
+Leverage user and entity behavior analytics
+to analyze and correlate activities across multiple data sources and identify unusual credential or token usage.
+
+Continuously audit authentication and access logs
+for signs of replay or unauthorized access.
+
+Implement just-in-time (JIT) access
+for privileged accounts, replacing standing administrative rights with temporary, time-bound privilege elevations.
+
+For organizations using Entra ID:
+
+Monitor and control who has access to application identities.
+
+Implement CAPs for workload identities
+and monitor for excessive or unused permissions.
+
+Use Microsoft’s app governance to detect and manage risky SPs
+, which are special accounts used by applications and services. See Microsoft’s
+OAuth app visibility and insights with app governance - Microsoft Defender for Cloud Apps
+for more information.
+
+Integrate Entra ID tenant monitoring with on-prem security operations
+to promptly identify suspicious activity.
+
+Regularly review and restrict application permissions
+(e.g.,
+Mail.Read
+,
+Files.Read.All
+).
+
+For guidance, see CISA’s
+Secure Cloud Business Applications (SCuBA) Project
+, which provides secure configuration baselines for Microsoft 365 (M365), including Microsoft Entra ID.
+
+Use CISA’s
+ScubaGear
+, a no-cost assessment tool that verifies M365 tenant configuration alignment to the policies described in SCuBA’s secure configuration baselines.
+
+Use certificate-based authentication certificates for application authentication
+instead of client secrets, when possible. See Microsoft’s
+Set Up Microsoft Entra CBA - Microsoft Entra ID
+.
+
+Review newly created secrets and/or certificates
+on existing applications.
+
+Limit secret lifetimes to a reasonable lifetime
+.
+
+In AWS environments:
+
+Mitigate the risks of long-lived IAM user credentials.
+
+Identify and audit all existing access keys and disable/delete unused or unnecessary keys.
+
+Require human users to use temporary AWS credentials through SSO.
+
+Users will assume an IAM role for AWS access and receive temporary credentials that expire within an hour.
+
+For more information on accessing AWS using temporary credentials, see Amazon’s documentation
+Security best practices in IAM
+and
+Compare IAM identities and credentials
+.
+
+Regularly review the environment to verify no long-lived credentials remain.
+
+Secure Active Directory and Manage Credentials
+
+Apply secure configurations to ADCS implementations.
+
+Disable the
+CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT
+flag from templates to prevent users from supplying and editing sensitive security settings within these templates.
+
+Restrict accounts that can enroll in all certificate templates to only those necessary, especially templates with the
+CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT
+flag.
+
+Remove
+FullControl
+,
+WriteDacl
+, and
+Write
+property permissions from low-privileged groups, such as domain users, to certificate template objects, where such permissions are not needed.
+
+Enforce manager approval for requested certificates.
+
+Apply additional guidance from CISA’s joint Guidance
+Detecting and Mitigating Active Directory Compromises
+(see Mitigating AD CS compromise, pages 15–16).
+
+Configure the MAQ to zero unless there is a specific operational need for non-administrative users to create computer accounts
+; this prevents standard user accounts from creating new machine accounts, reducing opportunities for malicious cyber actors to abuse this privilege.
+
+If some standard user accounts need to create computer accounts, set MAQ to the lowest possible value and restrict this capability to only users or groups with a business justification.
+
+Improve credential hygiene
+.
+
+Scan network shares and workstations for plaintext credentials and remove any found.
+
+Train staff on secure password storage practices and enforce policies prohibiting plaintext password storage.
+
+Use encrypted password vaults for storing credentials and limit access to only those who require it.
+
+Periodically audit credential stores and access logs for signs of misuse.
+
+Periodically audit AD permissions
+for misconfigurations and excessively privileged groups and accounts.
+
+Implement the principle of least privilege [
+CPG 3.H
+].
+
+Grant standard user rights for standard user tasks such as email, web browsing, and using line-of-business applications.
+
+Periodically audit standard user accounts and minimize privileged access.
+
+Periodically audit AD permissions to verify that standard user accounts do not have excessive permissions and have not been added to admin groups.
+
+Evaluate which administrative groups should administer specific servers and workstations.
+
+Separate administrator accounts from standard user accounts [
+CPG 3.G
+].
+
+Use designated workstations for administrators and standard users and prevent administrators from using admin workstations for non-admin purposes; this would reduce impact of credential theft from a user workstation.
+
+Use designated administrative accounts exclusively for admin purposes.
+
+If a standard user account needs administrative rights over their workstation, use a separate account that does not have administrative access to other hosts, such as servers.
+
+Consider using a privileged access management (PAM) solution to manage access to privileged accounts and resources.
+
+PAM solutions can log and alert usage to detect unusual activity, which could have alerted the assessed organizations when the red team accessed resources with admin accounts.
+
+Note:
+Treat password vaults associated with PAM solutions as high value assets (HVAs) with additional restrictions and monitoring.
+
+Configure time-based access for accounts set at the admin level and higher.
+
+The just-in-time access method provisions privileged access when needed and can support enforcement of the principle of least privilege, as well as the zero trust model. A network-wide policy automatically disables administrator accounts at the AD level when the account is not needed. When standard user accounts need administrative access, they submit their requests through an automated process that enables access to a system, but only for a set timeframe to support task completion.
+
+Secure Endpoint Configuration Managers
+
+Treat endpoint management systems (such as SCCM) as HVAs with additional restrictions and monitoring because they provide elevated access to thousands of hosts.
+
+Segment Operational Technology Networks
+
+Implement strict firewall rules and access controls between IT and OT environments [
+CPG 3.I
+].
+
+Limit jump server access to OT networks and require MFA for all connections.
+
+Regularly review OT network architecture and access paths to minimize unnecessary connectivity.
+
+Monitor OT network traffic for signs of lateral movement or unauthorized access.
+
+Implement change management solutions to track and restrict modifications to OT components.
+
+Validate Security Controls
+
+In addition to applying mitigations, CISA recommends exercising, testing, and validating your organization's security program against the threat behaviors mapped to the MITRE ATT&CK Matrix for Enterprise framework in this advisory. CISA recommends testing your existing security controls inventory to assess how they perform against the ATT&CK techniques described in this advisory.
+
+To get started:
+
+Select an ATT&CK technique described in this advisory (see
+Table 2
+to
+Table 11
+).
+
+Align your security technologies against the technique.
+
+Test your technologies against the technique.
+
+Analyze your detection and prevention technologies’ performance.
+
+Repeat the process for all security technologies to obtain a set of comprehensive performance data.
+
+Tune your security program, including people, processes, and technologies, based on the data generated by this process.
+
+CISA recommends continually testing your security program, at scale, in a production environment to ensure optimal performance against the MITRE ATT&CK techniques identified in this advisory.
+
+Resources
+
+Microsoft:
+Understanding primary refresh token (PRT)
+
+SpecterOps:
+Certified pre-owned: Abusing Active Directory Certificate Services
+
+Contact Information
+
+Organizations are encouraged to report suspicious or criminal activity related to information in this advisory to CISA via CISA’s 24/7 Operations Center at
+contact[@]cisa[.]dhs[.]gov
+or 1-844-Say-CISA (1-844-729-2472). When available, please include the following information regarding the incident:
+
+Date, time, and location of the incident;
+
+Type of activity;
+
+Number of people affected;
+
+Type of equipment used for the activity; and
+
+Name of the submitting company or organization, and a designated point of contact.
+
+Disclaimer
+
+The information in this report is being provided “as is” for informational purposes only. CISA does not endorse any commercial entity, product, company, or service, including any entities, products, or services linked within this document. Any reference to specific commercial entities, products, processes, or services by service mark, trademark, manufacturer, or otherwise, does not constitute or imply endorsement, recommendation, or favoring by CISA.
+
+Version History
+
+August 25, 2026
+: Initial version.
+
+Notes
+
+1
+“SpecterOps / Bloodhound,” GitHub, last modified July 15, 2026,
+https://github.com/SpecterOps/BloodHound
+.
+
+2
+“SpecterOps / AzureHound,” GitHub, last modified June 4, 2026,
+https://github.com/SpecterOps/AzureHound
+.
+
+3
+“ROADrecon,” GitHub,
+https://github.com/dirkjanm/ROADtools/tree/master/roadrecon
+.
+
+4
+“dirkjanm/adconnectdumb,” GitHub, last modified August 25, 2026,
+https://github.com/dirkjanm/adconnectdump
+.

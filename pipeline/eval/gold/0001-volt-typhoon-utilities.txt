@@ -51,7 +51,7 @@ small-office routers on residential Australian and New Zealand ISP ranges before
 reaching operator infrastructure, a pattern consistent with T1090 and one that
 substantially complicates network-based detection: to a defender reviewing
 netflow, the traffic resembles ordinary domestic broadband. We observed relay
-traffic to 192.0.2.117 and to 198.51.100.42, and a single beacon to
+traffic to 192[.]0[.]2[.]117 and to 198[.]51[.]100[.]42, and a single beacon to
 hxxps://cdn-status[.]water-ops[.]example over 443.
 
 Assessment

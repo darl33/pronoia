@@ -1,0 +1,19 @@
+{
+  "id": "0019-uat-10147-deploys-spectre-a-cross-platform-impla",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0019-uat-10147-deploys-spectre-a-cross-platform-impla.txt",
+    "title": "UAT-10147 deploys SPECTRE: A cross-platform implant with Linux rootkit and BYOVD capabilities",
+    "source_url": "https://blog.talosintelligence.com/uat-10147-deploys-spectre-a-cross-platform-implant-with-linux-rootkit-and-byovd-capabilities/",
+    "source_kind": "vendor_blog",
+    "published_on": "2026-08-20"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07447-49a7-78ae-802a-aea88f15ffb5; 1 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

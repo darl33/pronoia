@@ -1,0 +1,19 @@
+{
+  "id": "0015-artoken-inside-an-eviltokens-affiliate-panel-tar",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0015-artoken-inside-an-eviltokens-affiliate-panel-tar.txt",
+    "title": "ARToken: Inside an EvilTokens affiliate panel targeting Microsoft 365",
+    "source_url": "https://blog.talosintelligence.com/artoken-inside-an-eviltokens-affiliate-panel-targeting-microsoft-365/",
+    "source_kind": "vendor_blog",
+    "published_on": "2026-07-01"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 019f9f68-25ef-72a2-912a-011327512764; 1 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

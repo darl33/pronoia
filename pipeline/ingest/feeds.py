@@ -23,6 +23,14 @@ FEED_SEEDS: list[FeedSeed] = [
         kind="rss",
     ),
     FeedSeed(
+        name="CISA Cybersecurity Advisories (AA series)",
+        url="https://www.cisa.gov/cybersecurity-advisories/cybersecurity-advisories.xml",
+        kind="rss",
+        # The AA-numbered joint advisories: named actors, ATT&CK tables, real
+        # bodies. all.xml above is dominated by ICS/product advisories and
+        # crowds these out entirely. docs/DECISIONS.md#cisa-advisory-types
+    ),
+    FeedSeed(
         name="ACSC Advisories",
         url="https://www.cyber.gov.au/rss/advisories",
         kind="rss",
@@ -36,10 +44,8 @@ FEED_SEEDS: list[FeedSeed] = [
         # Already ships the full post in <content:encoded> (~11k chars).
         fetch_articles=False,
     ),
-    FeedSeed(
-        name="MISP Galaxy: Threat Actor Clusters",
-        url="https://raw.githubusercontent.com/MISP/misp-galaxy/main/clusters/threat-actor.json",
-        kind="json",
-        poll_interval_minutes=10080,  # reference data, weekly is plenty
-    ),
 ]
+
+# The MISP galaxy is deliberately NOT a feed: refdata/misp.py loads it from its
+# own URL. As a feed it lands in raw_document and gets sent to the model as if
+# it were a threat report. See docs/DECISIONS.md#reference-data-is-not-a-feed

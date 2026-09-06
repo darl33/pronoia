@@ -1,0 +1,19 @@
+{
+  "id": "0010-cisa-shares-lessons-learned-from-an-incident-res",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0010-cisa-shares-lessons-learned-from-an-incident-res.txt",
+    "title": "CISA Shares Lessons Learned from an Incident Response Engagement",
+    "source_url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-266a",
+    "source_kind": "cisa",
+    "published_on": "2025-09-22"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07448-788f-7e61-b18f-997a29f092a4; 4 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

@@ -1,0 +1,368 @@
+Cisco Talos recently identified an undocumented phishing framework, internally branded "JWR" by its developer, built to convincingly impersonate checkout and login pages across major payment and shopping platforms.
+The client engine of the JWR phishing framework is a real-time, operator-driven system that, rather than merely logging form submissions like a static credential-stealing page, keeps an AES-CTR encrypted WebSocket open to the threat actor so they can steer each victim's session live.
+The victim data targeted by the actor using JWR extends well beyond payment data, encompassing identity documents, Social Security numbers, passport and driver's license images, website and PayPal credentials, 2FA codes, and full device fingerprints, all committed to the actor's server once a session ends.
+Talos assesses with medium confidence that the JWR phishing framework is a variant of "The Outsider," a phishing-as-a-service (PhaaS) platform, based on several similarities in the client engine scripts and functionalities of the two PhaaS platforms.
+Talos observed a real-world campaign delivering the JWR client via SMS lures impersonating toll authorities, and postal and courier services of several countries in Southeast Asia and the Middle East.
+JWR phishing framework, a likely variant of the Outsider
+JWR is a phishing framework capable of harvesting complete payment card data, login credentials, and personally identifiable information (PII) documents and images in real time. The client-side engine of the framework impersonates login, and checkout flows of several payment gateways, including Shopify, PayPal, Apple, Klarna, and banks, while allowing the operator to stealthily control the victim session through an AES-CTR encrypted WebSocket channel. The client engine architecture is divided into a Host Bridge module that relays commands into a phishing inline frame (iframe) and a Vue.js victim application that renders across 44 phishing pages, streams the victim's keystrokes to the actor as they are typed, and carries out more than 40 distinct instructions issued from the command-and-control (C2) console. The data exfiltration schema is a cvvform object that includes fields such as credit card number, CVV, PIN, expiry date, Social Security Number (SSN), passport or ID images, two-factor authentication (2FA) codes, website logins, PayPal credentials, and device fingerprint.
+Talos discovered that the JWR client engine shares significant code and functional similarities with the client of The Outsider PhaaS platform operated by the Chinese-speaking actor “Outsider Enterprise,” which was reported by external
+researchers
+.
+JWR client architecture and workflow
+Figure 1. JWR phishing framework’s client engine architecture and execution flow.
+The execution starts when the parent phishing webpage loads and executes the client's engine. It checks a single global flag,
+window.__HOST_MODE
+,
+which is set by the parent phishing page, and selects one of two execution modes. If the flag is set, the script enters Host Mode, and control passes to the Host Bridge module, an immediately invoked function expression (IIFE) that operates within the parent page, typically a replica of a legitimate checkout or account login page, relaying received details into a child iframe that contains the actual phishing form. It establishes a persistent WebSocket connection to the actor’s C2 server.
+If the flag is not set, the page enters Content Mode, and control passes to the Vue.js Application, an interactive front end that renders the phishing pages, collects victim input, manages the flow across 44 HTML files, and handles the actor’s instructions from the C2 server, ultimately redirecting to a custom error page after sending the data to the C2. The Content Mode of execution has three communication modes: standalone, pluginIframe, and hostIframe.
+In standalone mode, the application fully owns its WebSocket connection.
+In pluginIframe mode, it has no direct link to the network at all and instead sends everything upward to an embedding plugin frame.
+In hostIframe mode, it defers entirely to a parent page already running as the relay bridge.
+Regardless of which of these three modes or through the Host Bridge is used, the data is either sent to C2 as plain text in JSON format with the DEV_MODE flag set, or it is passed to the JwrCrypto module, which encrypts it with a newly generated key before sending it to the C2 server.
+The script engine includes a background worker module that maintains the connection with C2, keeping it alive independently of page navigation for the remainder of the session. In a live session activity, the script continuously streams the victim’s keystrokes to the actor's C2 server as captured data, while that the actor continuously sends the next instruction to be executed from the C2 server. Each incoming instruction is checked by the client engine against a brief history to ensure that nothing already executed runs twice, then routed by the Instruction Handling module to one of two outcomes including, redirecting the victim to a different phishing page or updating the current page's state and displayed status, awaiting the actor’s next instruction. This execution loop repeats until the actor decides to keep the session alive, and when the actor chooses to close the session, the accumulated data is transmitted to the C2 one last time, and the victim is redirected.
+JWR Client’s host bridge mode
+In host bridge mode, the IIFE establishes a persistent WebSocket connection to the actor's server, manages the victim's session identity, excludes repeating incoming instructions, and proxies all communication between the server and the phishing child iframe.
+Every victim is assigned a unique session token the moment the bridge initializes. It first checks persistent storage for an existing JWRCID value if the victim has visited the page before, and if true, the same token is reused, allowing the actor to correlate multiple visits from the same device. If none exists, a new token is generated in the format
+JWRCVV-{Date.now()}-{random1}-{random2}
+, with both random segments being 13-character base-36 strings, and this token becomes the victim's permanent identifier for the entire C2 communication.
+The module then spawns a Web Worker from a separate script located at static/js/ws-worker.js, which isolates the WebSocket from the main JavaScript context, allowing the connection to persist during navigation within the phishing flow. The WebSocket connection path is constructed as
+webSocket/QT/{sessionId}/khkjsahfjkwhakjlsdwdddddd88
+, where the alphanumeric suffix is likely a server-side authentication token that ensures the connection originates from a deployed kit instance.
+Figure 2. Deobfuscated view of JWR client’s host bridge mode initialization.
+The host bridge incorporates an anti-analysis check, which serves as a one-time execution guard that performs a self-referential .toString().search() call against a backtracking regex. This check detects whether a debugger has attached the function to modify its apparent source. Additionally, a decoy variable is scattered throughout the code to mislead static-analysis tools.
+Moreover, it maintains a JSON array named JwrExecutedInstructions in sessionStorage to prevent the same operator instruction from executing more than once. Before relaying any instruction into the phishing iframe, it verifies the instruction ID against a list. If a match is found, it discards the repeating instructions. If it is a new instruction, it sends an acknowledgment back to the C2 server in the format
+{type:"instructionAck", instruction_id:, cvv_id:}
+. The list is limited to 50 entries and is trimmed to retain the most recent 30.
+Figure 3. Deobfuscated view of JWR client’s instruction handling and acknowledging functions of Host bridge mode.
+Content Mode operation (Vue.js application), the real-time capture
+The Vue.js victim application developed by the JWR developer is a single Vue 2.X instance,
+window.vm = new Vue ({el: ‘#app’, ...})
+, mounted on a Document Object Model (DOM) element with the id “#app”. This application serves as the phishing page that the victim sees and interacts with. It is responsible for rendering the checkout forms, collecting and streaming input to the C2, executing the actor’s instructions, and performing the exfiltration function.
+When the Vue instance is constructed, the created function is executed, processing the data passed from the fake webpage the victim visited, but without attaching the page. It generates the session ID and clears any sensitive fields leftover from a prior page visit if the victim had previously accessed the same fake page. It also restores any previously saved session state from “sessionStorage” if it exists. Then, it redirects the victim from any page other than index/login/home that lacks a session ID to
+a_index.html
+, ensuring the victim enters the phishing flow. Finally, the Vue takes the rendered output and attaches it to the
+#app
+element in the page's DOM, making the interface visible and interactive to the victim.
+Once the DOM is ready, Vue executes the mounted function asynchronously, at which point the victim becomes visible to the actor. It determines the engine’s execution mode and then executes two functions: getIPInfo() to geolocate the victim’s IP address and getSyncSettings() to pull the actor’s configuration from the C2 server. Next, it initializes the communication channel, captures the victim's action, and creates a CVV form with the victim's device fingerprint data. This includes the victim's current form of state, such as device type, browser, language, time zone, and geolocation, which are encrypted and sent to the actor's C2 server.
+Figure 4. Deobfuscated view of JWR client’s Vue app’s initialization and mounting functions.
+One of the key features of the JWR kit is its near-real-time input streaming. Each input element in the phishing form is transmitted to the actor’s console, allowing the actor to view partial card numbers, partial passwords, and partial verification codes as the victim types, without needing to wait for the victim to click any submit button. This mechanism enables the actor to see the victim's data and determine which instruction to send to the client's engine from the C2 before the victim even submits the form.
+Before the Vue instance is created, the client engine establishes an instruction mapping table that correlates over 40 actor command names with specific HTML page filenames, thereby granting the actor remote control over the victim browser session.
+Figure 5. Deobfuscated view of JWR client’s Vue app’s initialization and mounting functions.
+The JWR client script includes a C2 command dispatcher. When the actor sends an instruction, the client receives, decrypts, and forwards it to the dispatcher function, which routes it to the appropriate handler based on the instruction type. The table below displays the actors' instructions from C2, facilitated by the JWR client kit.
+
+Instructions
+
+Purpose
+
+to_index
+
+Send victim to the landing/entry page
+
+to_login
+
+Send victim to site-login page
+
+to_password
+
+Prompt for account password
+
+to_info
+
+Collect PII
+
+to_card
+
+Send victim to card-entry page
+
+to_qr
+
+Show QR code for scan-based verification
+
+to_sms
+
+Request SMS OTP
+
+to_sms_login
+
+Request SMS OTP for login step
+
+to_sms_bank
+
+Request SMS OTP for bank verification
+
+to_2fa
+
+Request 2FA code
+
+to_text_verify
+
+Request custom text/code verification
+
+to_email
+
+Request email OTP
+
+to_pin
+
+Request card PIN
+
+to_app
+
+Request bank-app push approval
+
+to_login_app
+
+Request app-based login approval
+
+to_bank_login1
+
+Step 1 of multi-stage bank login
+
+to_bank_login2
+
+Step 2 of multi-stage bank login
+
+to_bank_login3
+
+Step 3 of multi-stage bank login
+
+to_custompage
+
+Route to a custom/template-defined page
+
+to_shop
+
+Show fake storefront/shop page
+
+to_paypal_login
+
+Collect PayPal login credentials
+
+to_paypal_card
+
+Collect card data via PayPal-branded flow
+
+to_paypal_card_verify
+
+Request card verification text (PayPal flow)
+
+to_paypal_sms
+
+Request PayPal-linked phone OTP
+
+to_paypal_email
+
+Request PayPal-linked email OTP
+
+to_paypal_pin
+
+Request PayPal PIN
+
+to_paypal_app
+
+Request PayPal app-approval verification
+
+to_apple_login
+
+Collect Apple ID login
+
+to_apple_sms
+
+Request Apple-linked SMS OTP
+
+to_apple_email
+
+Request Apple-linked email OTP
+
+to_apple_card
+
+Collect card data via Apple-branded flow
+
+to_apple_verify
+
+Request generic Apple verification step
+
+to_klarna_login
+
+Collect Klarna login credentials
+
+to_klarna_sms
+
+Request Klarna-linked SMS OTP
+
+to_klarna_email
+
+Request Klarna-linked email OTP
+
+to_klarna_pay
+
+Collect Klarna payment details
+
+to_klarna_pin
+
+Request Klarna PIN
+
+to_success
+
+Sends full data to the C2 and redirect victim to a real site
+
+to_redirect
+
+Redirect victim out to an operator-supplied URL
+
+tip_fail
+
+Show generic declined/invalid error, force re-entry
+
+tip_custom_fail
+
+Show an operator-authored custom error message
+
+to_page_custom_fail
+
+Route to a custom failure page defined per template
+
+tip_change_card
+
+Fake card-declined prompt to extract a second/different card
+
+updata_img
+
+Push a new image
+
+likely a
+
+refreshed QR code
+
+without navigating
+
+updata_2fa
+
+Silently inject/display an OTP code supplied by the operator
+
+text_updata_verify
+
+Push custom verification text to display, without navigating
+
+submitResult
+
+Operator pushes a corrected or enriched copy of the victim's form data back into the session
+
+The JWR client engine has a data exfiltration schema. Its scope extends well beyond payment data, and includes full identity information (name, gender, date of birth, Social Security Number, passport, driver's license, medical record number), address, email and email password, up to three sets of website credentials, PayPal login, complete card data (PAN, expiry, CVV, PIN, brand, issuer, issuing country), front and back card images, photos of identity documents, and an automatically captured browser fingerprint, including IP, device, language, time zone, user agent, cookies, and geolocation.
+Upon submission, the client normalizes the submission types, triggering a full-screen non-interactive overlay over the page. For credit card submissions, a Lottie animation is displayed that corresponds to the card brand detected from the first two BIN digits. After exfiltration, when the actor closes the WebSocket, terminate the worker and POST the entire cvvformobject to the C2 endpoint at
+api/open/the_final_interface
+. Once the actor confirms, the victim is redirected to the actual site.
+Talos discovered that the primary mode of C2 communication for the JWR kit is via a binary WebSocket connection. The WebSocket path follows the format shown below, where the JWRCID and JWRCVV segments encode the victim’s unique session token, and the trailing alphanumeric suffix is likely a server-side authentication token.
+Figure 6. Sample C2 connection initiation function of JWR client.
+Alongside the WebSocket, the JWR client registers five Representational State Transfer (REST) endpoints which are used as an alternate communication method, between the C2 and the victim browser. In this case, a session opens with
+api/open/addClick
+, executed once from within the mounted function after the phishing page becomes visible to the victim. It reports the victim's IP address, country, the specific phishing page they landed on, the referring or storefront URL, and a bundle of device and operating system (OS) metadata to the actor's console with a live "new visitor" entry before a single instruction has even been sent by the actor from the C2 server. Running alongside it is
+api/open/getSyncSettings
+, which pulls inbound configuration from the actor's server rather than exfiltrating anything, letting the actor change error messages, default contact placeholders, currency display, and other behavior on the fly without redeploying the client engine. For the victim’s environments where a persistent WebSocket connection is unavailable or blocked,
+api/open/pollInstruction
+provides an HTTP long poll fallback that delivers the same operator instruction objects the socket would otherwise push, keeping the actor's remote control functional even under restrictive network conditions. The session closes with
+api/open/the_final_interface
+, the client engine terminal exfiltration call. Once the actor issues a release instruction, the WebSocket connection and background worker are closed, and the entire accumulated cvvform object, every field collected across the full victim session — card data, identity documents, credentials, and fingerprint alike — is sent via HTTP POST to the C2 endpoint.
+The below table represents the endpoints and the purpose.
+
+Endpoint
+
+Purpose
+
+api
+/open/
+addclick
+
+Victim arrival beacon with fingerprinting
+
+data sent
+
+to C2
+
+api
+/open/
+getSyncSettings
+
+Gets actor-controlled settings from the C2
+
+api
+/open/
+the_final_interface
+
+POSTs the entire
+
+cvvform
+
+–
+
+exfiltration
+
+endpoint
+
+api
+/open/
+pollInstruction
+
+Gets the actor’s instructions from the C2
+
+api
+/open/
+addCvv
+
+E
+xfiltration endpoint
+
+The JWR client has purpose-built integrations for two major e-commerce platforms Shopify and WooCommerce. For Shopify deployments, the client reads the cart_data URL parameter which is a signed JSON blob that Shopify passes between checkout steps and extracts the checkout domain to use as the WebSocket base URL. This makes the WebSocket connection seem to originate from a legitimate Shopify domain. The initShopifyProductInfo() and initWordPressProductInfo() functions reconstruct the victim's shopping cart from the Shopify cart data, populating the phishing page with accurate product names, quantities, unit prices, and order totals making the fake checkout indistinguishable from the real one.
+Figure 7. Shopify platform integration function of JWR client.
+The operator facing status messages of the JWR framework are entirely written in Simplified Chinese and read as a professional admin dashboard notification feed phrases like "正在填写PayPal登录账号" (filling in PayPal login account), "进入2FA验证页, 请发送验证, 等待用户提交" (entering 2FA verification page, please send verification, waiting for user submission), and "均失败" (all failed), indicating that a Chinese-speaking actor is operating this scam campaign.
+Figure 8. Deobfuscated view of JWR client’s program with hardcoded status messages in Simplified Chinese.
+JWR phishing framework’s card stealing scenario
+When the victim lands on the fake page, their browser sends an arrival beacon, indicating to the actor that a new visitor is present. From there, the actor takes over, sending a
+to_info
+instruction that directs the victim to a personal details page. While the victim types, the actor sends no further instructions but monitors the data stream live. Once the actor has assessed the victim's personal information, they issue a
+to_card
+instruction, moving the victim to the card entry page, where the same stealth live streaming occurs as the card number is typed in digit by digit.
+If the actor isn't keen on the typed card details,
+tip_fail
+or
+tip_change_card
+instructions are sent, which deliver a fake "your card was declined" message to the victim and returns them to the card page to try a different one. This loop can repeat as many times as the actor wants, each attempt aimed at harvesting another card from the same victim. If the card is accepted instead, the operator sends one of the instructions:
+to_sms
+,
+to_2fa
+,
+
+to_pin
+, or
+
+to_app
+, directing the victim to a verification page to confirm their identity with a one-time code. For the rejected code, the actor sends the
+tip_fail
+instruction, which prompts the victim to re-enter it, while an accepted one leads to the final instruction,
+to_success
+, which redirects the victim to the real website, concluding the session with the actor now having the victim’s data that was typed.
+Figure 8. Payment card stealing scenario of the JWR client engine.
+The ongoing scam campaign
+Cisco Talos observed an attacker utilizing an SMS phishing technique, sending SMS related to toll or road-pricing fees, postal or courier fees lures that contain a malicious URL targeting potential victims. When victims click on the URL, it opens a fake webpage that executes embedded JavaScript, which then renders and loads the client-side JavaScript engine of the JWR phishing framework.
+Figure 9. Sample SMS phishing messages.
+Figure 10. Phishing page which renders and loads the JWR client enabling the HOST mode.
+The victimology of this scam campaign illustrates a broad, multi-country SMS phishing (smishing) operation rather than a single targeted campaign. Most of the malicious URLs impersonate a national land transport authority and its vehicle services or road toll payment portal, consistent with an "unpaid toll or road pricing fine" lure in Singapore. A second set of malicious URLs impersonates a national postal service, aligned with a "parcel held pending a customs or delivery fee" lure, alongside a smaller cluster mimicking an electronic toll collection system in the UAE. The third set of URLs impersonates a regional courier brand utilized across several Southeast Asian countries, again centered around the undelivered parcel or cash on delivery fee theme.
+Talos discovery of the similarities in the client engine script of the JWR framework used in the current campaign with that of the Outsider PhaaS platform and additionally, we observed that in June 2026, the FBI had announced the technical takedown operation against Outsider platform (PhaaS) that has been in operation since 2023, through a joint operation “Ghost Hook.” However, the Outsider PhaaS was sold as a self-servicing product in the actor’s Telegram channels, according to the external
+researcher
+report, indicating the likely existence of variants of the Outsider PhaaS kit employed and operated by other Chinese-speaking threat actors.
+Comparing JWR with other Chinese PhaaS platforms
+Figure 11. Comparison of a few features of Chinese PhaaS kits.
+Following the discovery of several similarities in the client-side scripts of the JWR and The Outsider kit, Talos conducted a comparative assessment of the JWR client script against other phishing kits operating within the Chinese-speaking criminal ecosystem.
+Talos found that JWR shares no code-level implementation with Lucid, Darcula, or Lighthouse. Its C2 communication protocol, encryption module, and message envelope are all independently engineered. At the behavioral level, JWR aligns closely with those kits. All four share the operational signature that defines this PhaaS lineage including live operator puppeteering, card capture paired with OTP/2FA interception, and multi-brand templating at scale. Several additional characteristics place JWR within the same family, highlighting a tradecraft consistency across the developers of the phishing kits embedded in the Chinese-speaking criminal ecosystem.
+Coverage
+The following ClamAV signature detects and blocks this threat:
+Js.Phishing.JwrFramework-10060456-0
+The following Snort2 and Snort3 (SIDs) rules detect and block this threat:
+66924
+66925
+66926
+66927
+66928
+IOCs
+The IOCs for this threat are also available at our GitHub repository
+here.

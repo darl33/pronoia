@@ -1,0 +1,654 @@
+UAT-10147 is a highly capable Chinese-speaking intrusion actor operating a multi-platform post-exploitation ecosystem targeting IIS and Linux servers, combining search engine optimization (SEO) fraud monetization with advanced persistence and defense evasion techniques.
+The newly identified SPECTRE implant represents a significant evolution in commodity intrusion tooling, integrating cross-platform command-and-control (C2) operations, process injection, credential theft, anti-analysis protections, and kernel-level endpoint detection and response (EDR) bypass functionality.
+The actor demonstrates operational maturity through the combined use of custom malware, open-source offensive tooling, Bring Your Own Virtual Driver (BYOVD) based EDR neutralization, Linux kernel rootkits, and sophisticated in-memory web shell deployment techniques.
+Cisco Talos’ analysis of recovered source code suggests portions of the Linux rootkit development may have incorporated AI-assisted code generation workflows, highlighting the growing role of generative AI in accelerating offensive malware development.
+In our
+previous blog
+, Cisco Talos documented how UAT-10147 operationalized AI-assisted exploitation workflows to compromise internet-facing IIS and Linux servers at scale. This blog discusses how UAT-10147 is employing a diverse arsenal of tools, including SEO fraud utilities, local privilege escalation tools, and both off-the-shelf and custom developed backdoors.
+To thoroughly analyze their toolkit, the following section is divided into three parts, detailing the specific tools used and their respective capabilities. We also assess that UAT-10147 is gradually incorporating AI-assisted development into its operations, likely to support the creation and refinement of tools used across its campaigns. Specifically, both its custom-developed backdoor, SPECTRE, and custom-developed rootkit, Specter, exhibit indications of AI-assisted development.
+Figure 1. Gradual adoption of AI-assisted development workflows.
+Talos also observed several SEO fraud-related components used in this campaign that we assess with medium confidence to be associated with “x神” (“xshen”), who is mentioned in a previously released
+Talos post
+. This assessment is supported by multiple development artifacts embedded in the BadIIS malware and related tooling.
+The BadIIS samples used in this activity contain the following PDB paths:
+C:\Users\Administrator\Desktop\2025-11-21 (x神订制全站劫持按浏览器语言跳转)\dll\Release\demo.pdb
+C:\Users\Administrator\Desktop\2025-11-21 (x神订制全站劫持按浏览器语言跳转)\dll\x64\Release\demo.pdb
+We also identified that the BadIIS installer embeds a service installer containing an additional PDB string referencing “x神”:
+C:\Users\Administrator\Desktop\x神的自安装服务\svchost\x64\Release\service.pdb
+Beyond these xshen-related development artifacts, other components in the campaign also contain references to “X.” The ASHX SEO engine configuration includes a string named “X-seo,” while the web shell uses an “X-ID” HTTP header to transmit a specific token. This header appears to support covert authentication by blending the web shell’s control traffic into otherwise routine HTTP communications.
+SPECTRE: A new cross-platform backdoor
+SPECTRE is a cross-platform backdoor written in C.
+Figure 2. Windows version of SPECTRE.
+Figure 3. Linux version of SPECTRE.
+Talos named this backdoor "SPECTRE" based on a debug log recovered from one of the observed samples. This log meticulously records each step of the malware's execution process and explicitly displays its name in the header. The contents of the observed log file are provided in Figure 4.
+Figure 4. SPECTRE debug log.
+Windows version
+The Windows variant of SPECTRE distinguishes itself from the stock Havoc framework through custom post-exploitation and defense evasion capabilities compiled directly into the binary. Furthermore, the implant heavily prioritizes obfuscation and anti-analysis by utilizing a dual layered defense strategy. First, API resolution is executed entirely at runtime via PEB hash walking, using a DJB2 variant algorithm. Second, string encryption relies on a per-string xorshift32 pseudorandom number generator (PRNG) scheme. Sensitive literals are encrypted at compile time with unique 32-bit seeds, decrypted to thread local storage immediately before execution, and never stored in plaintext within the “.text” or “.rdata” sections. Consequently, static detection methods are largely ineffective against the implant's indicators.
+Figure 5. Xorshift32 PRNG scheme.
+SPECTRE has a feature to execute a weighted anti-analysis scoring routine that evaluates process name blocklists, RAM capacity, CPU core count, disk space, sleep acceleration detection, and common sandbox host names and usernames. If the cumulative score reaches or exceeds 50 points, the process self-terminates.
+Figure 6. Windows anti-sandbox scoring.
+A fallback C2 domain is hardcoded within the binary and can be recovered through string decryption. All C2 communications are transmitted via HTTP POST requests to the “/api/v1/register” and “/api/v1/output” endpoints. Additionally, Talos observed a specific version of the implant attempting to read its C2 configuration from an NTFS Alternate Data Stream (ADS) located at “C:\Windows\System32\drivers\etc\hosts:cache”. This strategy allows the threat actor to easily update the C2 configuration by modifying the ADS, thereby circumventing firewall blocklists without needing to recompile the binary.
+Figure 7. Hardcoded C2 domain.
+Figure 8. C2 authentication.
+Talos observed 45 commands in this SPECTRE backdoor. 24 appear as plaintext comparands, and 21 are encrypted with the xorshift PRNG and decrypted at each dispatch.
+
+Commands
+
+Encrypted
+
+Description
+
+s
+hell
+
+sh
+
+No
+
+Execute shell command
+
+pwd
+cd
+
+No
+
+Print/change working directory
+
+ls
+
+No
+
+Directory listing
+
+cat
+
+No
+
+Read file
+
+mkdir
+
+No
+
+Create directory
+
+rm
+
+No
+
+Delete file/directory
+
+cp
+
+No
+
+Copy file
+
+mv
+
+No
+
+Move/rename file
+
+download
+
+No
+
+Send file to C2
+
+upload
+
+No
+
+Receive file from C2
+
+ps
+
+No
+
+Process list
+
+kill
+
+No
+
+Terminate process by PID
+
+env
+
+No
+
+Environment variables information
+
+sleep
+
+No
+
+Set beacon sleep interval
+
+sysinfo
+
+No
+
+OS/hardware information
+
+screenshot
+
+No
+
+Screen capture
+
+whoami
+
+No
+
+Current user/token info
+
+netinfo
+
+No
+
+Network interface information
+
+timestomp
+
+No
+
+Modify file timestamps
+
+rev2self
+
+No
+
+Revert impersonation token
+
+getprivs
+
+No
+
+List current token privileges
+
+selfdel
+
+No
+
+Delete implant file on disk
+
+reg
+
+No
+
+Registry read operations
+
+exit
+
+No
+
+Terminate beacon
+
+regset
+
+Yes
+
+Write REG_SZ or REG_DWORD value:
+regset
+<HKLM|HKCU>\path value data [REG_DWORD]
+
+inject
+
+Yes
+
+DLL injection (default: svchost.exe)
+
+s-
+nject
+
+Yes
+
+Shellcode injection
+
+getsystem
+
+Yes
+
+Privilege escalation
+
+steal_token
+
+Yes
+
+Token theft from target PID
+
+make_token
+
+Yes
+
+Spawn token with credentials
+
+earlybird
+
+Yes
+
+APC
+EarlyBird
+injection
+
+hollow
+
+Yes
+
+Process hollowing injection
+
+keylog_start
+
+Yes
+
+Start keystroke logger
+
+keylog_stop
+
+Yes
+
+Stop keystroke logger
+
+keylog_dump
+
+Yes
+
+Retrieve
+keylog
+buffer
+
+hashdump
+
+Yes
+
+Dump SAM/SYSTEM/SECURITY hives
+
+chromedump
+
+Yes
+
+Copy Chrome & Edge Login Data + Local State to
+ld
+/ls/
+ed_ld
+/
+ed_ls
+.
+tmp
+
+execute_assembly
+
+Yes
+
+In-memory .NET CLR hosting - execute any .NET assembly without disk write
+
+vaultdump
+
+Yes
+
+Spawn
+cmd
+key/list with captured pipe
+
+byovd_load
+
+Yes
+
+Load RTCore64/
+DBUtil
+driver
+
+byovd_unload
+
+Yes
+
+Unload and clean driver
+
+edr_kill
+
+Yes
+
+Kill EDR processes
+
+callbacks
+
+Yes
+
+Enumerate kernel callbacks
+
+proc_hide
+
+Yes
+
+Hide process from kernel list
+
+byovd_verify
+
+Yes
+
+Verify kernel R/W
+
+auto_protect
+
+Yes
+
+Status dashboard/ADS clear
+
+Table 1. Windows version command list.
+During our research, Talos noticed the encrypted commands are specific features for this backdoor. The features can be divided into three categories: 1) process injection, 2) privilege escalation and credential theft, and 3) BYOVD EDR killer capabilities.
+Process injection capabilities
+SPECTRE supports three distinct injection modalities, all managed through a unified handler. The first is standard process hollowing, which targets “svchost.exe” by default. The second is APC EarlyBird injection, which utilizes pre-allocated memory to deliver shellcode before the target thread can execute a single instruction. The third is an automated, on-startup self-hollowing technique targeting “RuntimeBroker.exe”; this executes directly from
+main()
+to conceal the implant and evade EDR visibility.
+Privilege escalation and credential theft capabilities
+The SPECTRE implements named pipe impersonation for privilege escalation. It creates a pipe named “\.\pipe\spectre_<tid>” and acquires a SYSTEM token via ImpersonateNamedPipeClient. With SYSTEM privileges, three registry hives HKLM\SAM\SAM, HKLM\SYSTEM, and HKLM\SECURITY are saved to “%TEMP%” via RegSaveKeyA for offline NT hash extraction using Impact “secretsdump.py”.
+Beyond hive dumping, SPECTRE provides two additional credential theft functions:
+Vaultdump:
+Spawns
+cmdkey.exe /list
+with stdout capture to enumerate Windows Credential Manager entries without any LSASS access
+Chromedump:
+Copies Chrome and Edge login data and local state files to “%TEMP%” for offline DPAPI decryption via SharpChrome
+BYOVD EDR killer
+SPECTRE downloads one of two well-known vulnerable driver from the C2 — either RTCore64.sys from MSI (associated with
+CVE-2019-16098
+) or DBUtil_2_3.sys from Dell (associated with
+CVE-2021-21551
+). It then decodes and writes the driver to disk under %TEMP%, installs it as a transient kernel service via the SCM, and opens an IOCTL handle to the device.
+Figure 9. Vulnerable kernel drivers.
+Leveraging arbitrary kernel read/write primitives exposed by these drivers, SPECTRE uses NtQuerySystemInformation to locate “ntoskrnl.exe” in the kernel address space. It then references a hardcoded, per-build offset table covering 13 Windows versions to calculate the exact kernel virtual addresses for PspCreateProcessNotifyRoutine, PspCreateThreadNotifyRoutine, and PspLoadImageNotifyRoutine. By performing targeted kernel writes, the SPECTRE safely unlinks each registered EDR callback from its doubly-linked list. Consequently, kernel-callback-dependent security products are rendered completely blind to new process creations, thread creations, and image load events for the remainder of the session, successfully neutralizing EDR visibility on the target machine.
+Figure 10. Blinding EDR.
+Linux version
+The SPECTRE Linux variant’s structure is the same as the Windows variant. It is a statically-linked ELF x86-64 binary targeting Linux systems. Upon execution, SPECTRE immediately invokes an eight-factor anti-sandbox scoring engine before establishing C2 connection. If the cumulative score reaches or exceeds the threshold of 50, the binary exits silently without generating any observable indicators.
+Figure 11. Linux anti-sandbox scoring.
+Following successful anti-sandbox validation, SPECTRE beacons to its hardcoded C2 domain with a JSON payload, which is the same as the Windows version.
+Figure 12. Linux hardcoded C2.
+Rather than 45 commands in the Windows variant, the Linux version of SPECTRE only has 29 commands, none of which result in obfuscation or encryption.
+
+Command
+
+Description
+
+s
+hell
+
+/bin/
+sh
+
+Execute arbitrary shell command
+
+pwd
+
+Print current working directory
+
+cd
+
+Change working directory
+
+ls
+
+List directory contents
+
+ps
+
+List running processes
+
+cat
+
+Read file contents
+
+download
+
+Exfiltrate binary file
+
+upload
+
+Write file to disk
+
+env
+
+Dump or query environment
+
+sleep
+
+Set agent sleep/jitter
+
+kill
+
+Kill a process by PID
+
+mkdir
+
+Create directory
+
+rm
+
+Delete file or directory
+
+cp
+
+Copy file
+
+mv
+
+Move/rename file
+
+sysinfo
+
+Detailed system information
+
+whoami
+
+Print UID/GID with names
+
+id
+
+Print UID/GID/groups (alias)
+
+netinfo
+
+Network interface information
+
+timestomp
+
+Modify file timestamps
+
+rootkit_load
+
+Load kernel module
+
+rootkit_hide
+
+Hide process from /proc
+
+rootkit_root
+
+Elevate to UID 0
+
+rootkit_hide_mod
+
+Hide kernel module from
+lsmod
+
+rootkit_status
+
+Check rootkit loaded state
+
+rootkit_persist
+
+Install
+systemd
+persistence unit
+
+rootkit_unload
+
+Unload kernel module
+
+selfdel
+
+Self-delete
+
+exit
+
+Terminate
+
+Table 2. Linux version command list.
+The backdoor's command set encompasses comprehensive file system manipulation, system and process reconnaissance, agent management, and unrestricted shell execution. A particularly notable feature is the
+timestomp
+command, an anti-forensics mechanism that utilizes the
+utimensat()
+function and operator-provided timestamps to alter a file's modification, access, and change times.
+SPECTRE's most critical capability is its integrated kernel-level rootkit, called Specter. The rootkit is deployed as a loadable kernel module disguised as “acpi_pad.ko”, allowing it to mimic the legitimate ACPI processor power management module. To maintain persistence, it utilizes a fraudulent systemd unit file named “hardware-monitor.service” and bears the description "Hardware Performance Monitor." Crucially, this service is configured with “Before=sysinit.target”, ensuring the rootkit executes on every system boot prior to the initialization of any security tooling.
+Figure 13. Kernel module disguised as “acpi_pad.ko”.
+The user level communicates with the loaded kernel module through a signal-based IPC mechanism, issuing
+kill()
+syscalls targeting a magic PID value of 0x7A69 (decimal 31337, a
+well-known "elite" hacker cultural
+) with specific real-time signal numbers encoding the desired operation:
+Signal 62 triggers process hiding by removing the target task_struct from the kernel PID list, rendering “/proc/<pid>” invisible.
+Signal 36 hides the module itself from lsmod by unlinking THIS_MODULE from the kernel module linked list.
+Signal 37 escalates the implant process to UID 0 by directly overwriting the process credential structure.
+Signal 35 serves as a module load acknowledgement handshake.
+This architecture grants the threat actor persistent, kernel-level control of the compromised host that survives both reboots and most user-level security controls.
+Figure 14. Magic PID value of 31337.
+Specter Linux rootkit
+The SPECTRE backdoor loads the Linux Kernel rootkit, Specter, to prevent detection from security products. Based on the SPECTRE Linux version we observed, the compiled artifact is deployed disguised as “acpi_pad.ko”. Rather than patching the syscall table, the hook mechanism rootkit uses the Linux kernel's native “ftrace” instrumentation framework with “FTRACE_OPS_FL_IPMODIFY” to redirect execution at the function entry point of six syscall handlers:
+hooked_tcp6_seq_show
+hooked_tcp4_seq_show
+hooked_tkill
+hooked_tgkill
+hooked_kill
+hooked_getdents64
+Because “ftrace” is a legitimate kernel debugging interface, this approach produces minimal noise in kernel integrity checks.
+Figure 15. Specter functions.
+Talos investigated the source code of the Specter rootkit and assesses with medium confidence that UAT-10147 leveraged a combination of AI-assisted development and human expertise in the creation of this rootkit, which is designed to be invoked directly by SPECTRE.
+The first evidence is the documentation structure. The opening feature list at the top of the source code is a product spec, not a developer's note. A complete bulleted feature list with parenthetical technical elaborations on each point reads as a response to a prompt such as, "Write a rootkit with the following features." It is the AI narrating what it is about to produce.
+Figure 16. Specter’s opening comments.
+The second piece of evidence is the rigid, uniform style of the decorative separators. The identical width and formatting applied consistently across all 10+ logical sections exhibit a machine-like uniformity that is a classic hallmark of AI-generated output. In addition, this text exhibits a pedagogical tone. An actual developer authoring a rootkit would not need to explain basic concepts to themselves, such as the function of taint flags or the mechanics of “cat /proc/sys/kernel/tainted”. The content is clearly structured as an educational explanation for a reader, rather than authentic, internal developer notes.
+Figure 17. Specter’s uniform separators and educational explanations.
+The last piece of evidence is that the inclusion of three distinct methods — explicitly labeled with inline comments such as “Method 1,” “Method 2, and “Method 3” — is a common artifact of AI generation. When prompted to be thorough, AI models tend to output all known approaches. In contrast, a human developer targeting a specific kernel would simply select and implement the single most effective method. This exhaustive, multi-method presentation is a classic example of an AI's completeness reflex.
+Figure 18. Specter’s inclusion of three methods.
+SEO fraud utilities
+Regarding the SEO fraud utilities deployed in this attack, we observed two distinct types of malware. The first is the previously discussed
+BadIIS malware-as-a-service (MaaS)
+and the second is a C# ASHX SEO engine. While both tools share the same core capability of facilitating SEO fraud, their mechanisms for establishing persistence on the compromised server are fundamentally different.
+ASHX SEO engine
+This SEO hijacking web handler silently takes over an IIS application's request pipeline via reflection. Functionally, it mirrors standard BadIIS malware, serving fabricated content to search crawlers to poison rankings while delivering a malicious JavaScript payload to targeted users. Furthermore, the threat actor explicitly named it “public class SeoEngineHandler,” clearly communicating the tool's intended purpose.
+Figure 19. SeoEngineHandler.
+Talos also observed that SeoEngineHandler is specifically designed to target Vietnamese internet users. The handler's internal configuration contains several indicators that substantiate this geographic focus, such as the configured C2 domains utilizing the “vn[.]xyz” suffix, and the malware explicitly targets the crawler for “Cốc Cốc” (configured as coccoc), a prominent Vietnamese web browser and search engine.
+Figure 20. SeoEngineHandler configuration.
+MaaS BadIIS
+The BadIIS variant observed in this attack is deployed to the compromised server within a ZIP archive containing both 32-bit and 64-bit versions of the malware, alongside an installation batch script. One of the recovered archives contained a service installer previously documented by
+Talos
+. Notably, the core malware is the specific variant detailed in that same Talos research, characterized by the “demo.pdb” string and confirmed to operate under a MaaS model.
+Figure 21. BadIIS ZIP archive.
+"Potato" family
+Talos observed the threat actor utilizing multiple “Potato” family tools to achieve system level privileges. While some of these tools, such as
+GodPotato
+and
+JuicyPotato
+, were downloaded as pre compiled binaries from the internet, others, like EfsPotato and RustPotato, were compiled by the threat actor directly from source code. Notably, analysis of the custom compiled
+EfsPotato
+and
+RustPotato
+payloads revealed embedded PDB strings and local file paths, inadvertently exposing details about the threat actor's development environment. The environment suggests that they target IIS servers and compile these custom privilege escalation tools within a designated AI directory. The explicit use of an AI folder in their build path is a fascinating detail, strongly suggesting that the threat actor may be leveraging AI to assist in the development of these tools.
+C:\Users\iis\.cargo\registry\src\index[.]crates[.]io-1949cf8c6b5b557f\widestring-1.2.1\src\ucstring.rs
+C:\Users\iis\Desktop\AI\EfsPotatoCpp\x64\Release\EfsPotato.pdb
+C:\Users\Intel\Desktop\AI\EfsPotatoCPP\x64\Debug\EfsPotato.pdb
+Other backdoors for persistence
+UAT-10147 leveraged other multiple backdoors throughout this attack. Their arsenal includes well-known commodity and open-source tools such as Gh0stCringe, QuasarRAT, Meterpreter, Noodle RAT, and a web shell.
+Web shell
+Talos observed a web shell with a sophisticated two layer architecture. The outer handler functions as a self bootstrapping loader that leverages in-memory dynamic compilation to execute its payload. Upon receiving the initial HTTP request, the handler reverses an obfuscated string, decodes it via Base64, and dynamically compiles the resulting code in memory using “CodeDomProvider”. To optimize execution and ensure thread safety, it caches the compiled assembly in a static field (_a) using double-checked locking, ensuring the payload is compiled only once per IIS worker process lifetime. Finally, the loader instantiates and invokes
+SHandler.ProcessRequest
+to manage all subsequent incoming requests.
+Figure 22. Web shell loader.
+The embedded handler functions as a versatile web shell implant, relying on a numeric parameter to dispatch its various operational modes. To maintain stealth, the shell employs a strict, multi-tiered authentication mechanism. It first inspects the X-ID HTTP header for a specific token; if absent, it falls back to checking the v parameter. If neither contains the exact value of "x9", the handler immediately halts execution and returns a deceptive “404 Not Found” error. This evasion technique allows the shell's covert authentication process to blend seamlessly into routine HTTP traffic.
+A detailed breakdown of the supported commands and their corresponding actions is outlined below.
+
+Command
+
+Description
+
+0
+(default)
+
+Get system information
+
+(
+MachineName
+| Username |
+OSVersion
+|
+CurrentPath
+)
+
+1
+
+Execute system
+command
+.
+
+b = binary to run (default: cmd.exe)
+
+g = arguments
+
+2
+
+Read file
+
+3
+
+Write file
+
+4
+
+Direct file download
+
+5
+
+Directory listing
+
+Table 3. Web shell command list.
+Figure 23. Web shell payload.
+Meterpreter
+Talos has observed UAT-10147 deploying reverse Meterpreter shells to maintain persistent access to compromised Linux hosts. The observed malware functions as a first stage shellcode dropper. Upon establishing a successful connection, this dropper retrieves a second stage payload designed to establish persistence and grant the threat actor full C2 over the victim's machine.
+Figure 24. Meterpreter payload.
+Noodle RAT
+UAT-10147 also deployed Noodle RAT against targeted Linux servers, utilizing it as a final stage backdoor to ensure persistent access. The specific payload observed in this campaign is the Type 0x03A2 ELF variant, which was previously documented in research published by
+Trend Micro
+.
+Figure 25. Backdoor command for Linux Noodle RAT.
+QuasarRAT
+Talos also observed UAT-10147 attempting to deploy QuasarRAT on compromised IIS servers to establish long-term persistence. A notable characteristic of this specific payload is its configured Campaign ID, which contains a derogatory Chinese string (“越南老逼”) toward Vietnamese elderly people. This artifact provides potential insight into the threat actor's sentiment or specific geographic targeting.
+Figure 26. QuasarRAT configuration.
+Gh0stCringe
+In another observed instance, UAT-10147 deployed Gh0stCringe to establish persistence. To evade detection, the threat actor embedded the Gh0stCringe payload as shellcode within a custom Go-based loader.
+Figure 27. A custom Go-based loader for Gh0stCringe.
+Coverage
+The following ClamAV signatures detect and block this threat:
+Win.Malware.Generic-10060235-0
+Win.Malware.Generic-10060218-0
+Win.Malware.Generic-9883082-0
+Win.Malware.BadPotato-10060230-0
+Win.Exploit.Marte-10033857-0
+Unix.Rootkit.Malware-10060258-0
+Win.Tool.GodPotato-10019688-1
+Unix.Rootkit.Spectre-10060260-0
+Unix.Trojan.Backdoor-6678692-0
+Win.Malware.Generic-10060252-0
+Win.Malware.Ulise-10056576-0
+Win.Malware.Generic-10060220-0
+Win.Malware.BadIIS-10059985-0
+Win.Tool.juicypotato-10041758-0
+Unix.Backdoor.Msfvenom-10012672-0
+Win.Loader. BadiisSet-10060291-1
+Asp.Rootkit.Badiis-10060290-1
+The following SNORT® rules (SIDs) detect and block this threat:
+Snort2: 1:66690, 1:66688, 1:66689
+Snort3: 1:66690, 1:301548
+Indicators of compromise (IOCs)
+The IOCs can also be found in our GitHub repository
+here
+.

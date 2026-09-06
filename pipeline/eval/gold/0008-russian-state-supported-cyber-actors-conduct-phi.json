@@ -1,0 +1,19 @@
+{
+  "id": "0008-russian-state-supported-cyber-actors-conduct-phi",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0008-russian-state-supported-cyber-actors-conduct-phi.txt",
+    "title": "Russian State-Supported Cyber Actors Conduct Phishing Campaign Targeting Users of Zimbra Collaboration Suite",
+    "source_url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-204a",
+    "source_kind": "cisa",
+    "published_on": "2026-07-21"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07448-7861-7b5a-a052-3bbf4a7c243a; 30 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}

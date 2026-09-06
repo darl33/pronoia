@@ -1,0 +1,19 @@
+{
+  "id": "0011-pro-russia-hacktivists-conduct-opportunistic-att",
+  "status": "placeholder",
+  "document": {
+    "text_file": "0011-pro-russia-hacktivists-conduct-opportunistic-att.txt",
+    "title": "Pro-Russia Hacktivists Conduct Opportunistic Attacks Against US and Global Critical Infrastructure",
+    "source_url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-343a",
+    "source_kind": "cisa",
+    "published_on": "2025-12-05"
+  },
+  "annotation": {
+    "actors": [],
+    "techniques": [],
+    "targets": []
+  },
+  "annotated_by": null,
+  "annotated_on": null,
+  "notes": "Exported from raw_document 01a07448-7886-7799-9675-f7f170b3f087; 5 indicator(s) defanged. Annotate per gold/README.md, then set status to \"annotated\". Read the document before annotating, and do not look at the pipeline's output first."
+}
