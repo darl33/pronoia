@@ -14,6 +14,12 @@ have to guess. Keeping it in one place means the reasoning can be read as an
 argument rather than reconstructed from forty files, and it stops the same
 paragraph being re-explained at three call sites.
 
+**Keeping it current.** A decision recorded here and then quietly changed in
+code is worse than no record at all. When an implementation decision is made or
+reversed, its section is added or edited *in the same commit as the code*, with
+an `<a id="anchor"></a>` heading so the code can link to it. A changed decision
+edits its existing section rather than appending a contradicting one.
+
 Section numbers in `§n` form refer to DESIGN.md.
 
 ---
