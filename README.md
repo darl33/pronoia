@@ -20,7 +20,7 @@ Built, in `pipeline/` (Python):
   non-LLM baseline (§7).
 
 Not built yet: the geopolitical-event correlation, the Rust API and the web
-frontend.
+frontend. `api/` is a placeholder crate until the API work starts.
 
 ## Eval results
 
