@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import socket
+import threading
+import time
 
 import pytest
 
-from ingest.ssrf import SSRFBlocked, pin_dns, resolve_and_validate, validate_url_scheme
+from ingest.ssrf import SSRFBlocked, ValidatedHost, pin_dns, resolve_and_validate, validate_url_scheme
 
 PUBLIC_IP = "93.184.216.34"  # example.com-style public address
 
@@ -107,6 +109,28 @@ def test_pin_dns_does_not_affect_other_hosts(monkeypatch):
     with pin_dns(validated):
         other = socket.getaddrinfo("blog.talosintelligence.com", 443)
         assert other[0][4][0] == "198.51.100.7"
+
+
+def test_pin_dns_is_safe_under_concurrency(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("10.0.0.1"))  # rebound answer
+    resolver = socket.getaddrinfo
+    failures = []
+
+    def worker(i):
+        host, ip = f"feed{i}.example.com", f"93.184.216.{i + 1}"
+        validated = ValidatedHost(hostname=host, port=443, ip=ip, family=socket.AF_INET)
+        with pin_dns(validated):
+            time.sleep(0.001)
+            if socket.getaddrinfo(host, 443)[0][4][0] != ip:
+                failures.append(host)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(40)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert failures == []
+    assert socket.getaddrinfo is resolver
 
 
 @pytest.mark.parametrize("url", ["http://cisa.gov/feed.xml", "file:///etc/passwd", "ftp://cisa.gov/x"])

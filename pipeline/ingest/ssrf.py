@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 ALLOWED_SCHEMES = {"https"}
+
+# RLock so a nested pin in the same thread can't deadlock.
+_PIN_LOCK = threading.RLock()
 
 
 class SSRFBlocked(Exception):
@@ -93,17 +97,20 @@ def resolve_and_validate(hostname: str, port: int) -> ValidatedHost:
 def pin_dns(validated: ValidatedHost):
     """Force socket.getaddrinfo to answer `validated.hostname` with the single
     address that was already checked by resolve_and_validate, for the
-    duration of the request. Other hostnames resolve normally."""
-    real_getaddrinfo = socket.getaddrinfo
-    pinned_sockaddr = (validated.ip, validated.port)
+    duration of the request. Other hostnames resolve normally. Holds _PIN_LOCK
+    for the whole patch window, so pinned requests run one at a time; see
+    docs/DECISIONS.md#ssrf."""
+    with _PIN_LOCK:
+        real_getaddrinfo = socket.getaddrinfo
+        pinned_sockaddr = (validated.ip, validated.port)
 
-    def patched(host, port, family=0, type=0, proto=0, flags=0):
-        if host == validated.hostname and port == validated.port:
-            return [(validated.family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", pinned_sockaddr)]
-        return real_getaddrinfo(host, port, family, type, proto, flags)
+        def patched(host, port, family=0, type=0, proto=0, flags=0):
+            if host == validated.hostname and port == validated.port:
+                return [(validated.family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", pinned_sockaddr)]
+            return real_getaddrinfo(host, port, family, type, proto, flags)
 
-    socket.getaddrinfo = patched
-    try:
-        yield
-    finally:
-        socket.getaddrinfo = real_getaddrinfo
+        socket.getaddrinfo = patched
+        try:
+            yield
+        finally:
+            socket.getaddrinfo = real_getaddrinfo
