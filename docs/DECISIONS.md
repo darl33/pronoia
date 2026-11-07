@@ -51,8 +51,14 @@ Checking the hostname string is not enough. The resolver is re-run and
 re-validated on every redirect hop, and the address used for the actual TCP
 connect is the exact one that was validated — otherwise a second,
 attacker-controlled DNS answer at connect time reintroduces the hole (DNS
-rebinding). Rejected ranges include RFC1918, loopback, link-local, and the
-169.254.169.254 cloud metadata address.
+rebinding).
+
+An address is rejected unless `ipaddress` marks it global, and multicast is
+rejected too because `is_global` lets it through. That covers RFC1918,
+loopback, link-local (169.254.169.254 metadata), and the 100.64.0.0/10 shared
+space that holds Alibaba Cloud's 100.100.100.200 metadata endpoint. IPv4
+wrapped in IPv6 (mapped, 6to4, Teredo, NAT64) is unwrapped and checked as IPv4.
+Rejected: checking `is_private` plus named ranges, which missed 100.64.0.0/10.
 
 ### <a id="xxe"></a>XXE: reject DOCTYPE outright
 

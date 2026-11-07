@@ -28,6 +28,9 @@ def _fake_getaddrinfo(ip: str, family=socket.AF_INET):
         "169.254.169.254", # link-local / cloud metadata
         "0.0.0.0",         # unspecified
         "224.0.0.1",       # multicast
+        "100.64.0.1",      # shared address space (RFC 6598)
+        "100.100.100.200", # Alibaba Cloud metadata
+        "198.18.0.1",      # benchmarking range
     ],
 )
 def test_rejects_disallowed_ipv4(monkeypatch, bad_ip):
@@ -43,6 +46,11 @@ def test_rejects_disallowed_ipv4(monkeypatch, bad_ip):
         "fe80::1",          # link-local
         "fc00::1",          # unique local (private)
         "::ffff:127.0.0.1", # IPv4-mapped loopback
+        "::ffff:100.100.100.200", # mapped shared address
+        "64:ff9b::6464:64c8",     # NAT64 form of 100.100.100.200
+        "2002:6464:64c8::1",      # 6to4 form of 100.100.100.200
+        "fd00:ec2::254",          # AWS IPv6 metadata
+        "ff02::1",                # multicast
     ],
 )
 def test_rejects_disallowed_ipv6(monkeypatch, bad_ip):
@@ -55,6 +63,13 @@ def test_allows_public_ip(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo(PUBLIC_IP))
     validated = resolve_and_validate("cisa.gov", 443)
     assert validated.ip == PUBLIC_IP
+
+
+def test_allows_public_ipv6(monkeypatch):
+    public_ipv6 = "2606:4700:4700::1111"
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo(public_ipv6, family=socket.AF_INET6))
+    validated = resolve_and_validate("cisa.gov", 443)
+    assert validated.ip == public_ipv6
 
 
 def test_dns_rebinding_is_blocked_by_pinning(monkeypatch):

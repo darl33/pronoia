@@ -1,4 +1,4 @@
-"""SSRF mitigation: DNS resolution, private/link-local/metadata range rejection,
+"""SSRF mitigation: DNS resolution, rejection of every non-public address,
 and DNS pinning so the validated address is the one connected to (DESIGN.md §6).
 
 Why pinning, not just validation: docs/DECISIONS.md#ssrf
@@ -19,11 +19,31 @@ class SSRFBlocked(Exception):
     pass
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """The IPv4 address an IPv6 address carries, if any (mapped, 6to4, Teredo, NAT64)."""
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if ip.teredo is not None:
+        return ip.teredo[1]  # client address, already de-obfuscated
+    if ip in _NAT64:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
 def _is_disallowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = _embedded_ipv4(ip)
+        if embedded is not None and _is_disallowed_ip(embedded):
+            return True
+    # Keep the explicit checks: is_global alone treats multicast as global.
     return (
-        ip.is_private
+        not ip.is_global
+        or ip.is_private
         or ip.is_loopback
         or ip.is_link_local
         or ip.is_reserved
