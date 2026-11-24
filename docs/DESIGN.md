@@ -330,7 +330,7 @@ Threat model: the system fetches and parses **attacker-adjacent content**. Vendo
 
 | Threat | Mitigation |
 |---|---|
-| SSRF via feed URLs / redirects | Allowlist of registered feed domains; resolve DNS and reject private/link-local/metadata ranges (RFC 1918, 169.254.0.0/16, ::1) *before* connecting; re-validate on every redirect hop; cap redirects at 3 |
+| SSRF via feed URLs / redirects | Allowlist of registered feed domains; resolve DNS and reject every non-public address (RFC 1918, 100.64.0.0/10, 169.254.0.0/16, ::1, multicast, and IPv4 wrapped in IPv6) *before* connecting; re-validate on every redirect hop; cap redirects at 3 |
 | XXE / entity expansion in XML feeds | `defusedxml` everywhere; feedparser configured with entity resolution disabled; reject DOCTYPE declarations |
 | Decompression bombs | Cap response size (10 MB) at the transport level; stream-decode with a decompressed-size ceiling |
 | Stored XSS via report content | `raw_html` is never rendered; `clean_text` produced via bleach/ammonia-equivalent sanitization; frontend renders text only, React default escaping, strict CSP (no inline scripts) |

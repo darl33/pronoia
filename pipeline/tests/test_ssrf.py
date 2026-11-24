@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import socket
+import threading
+import time
 
 import pytest
 
-from ingest.ssrf import SSRFBlocked, pin_dns, resolve_and_validate, validate_url_scheme
+from ingest.ssrf import SSRFBlocked, ValidatedHost, pin_dns, resolve_and_validate, validate_url_scheme
 
 PUBLIC_IP = "93.184.216.34"  # example.com-style public address
 
@@ -28,6 +30,9 @@ def _fake_getaddrinfo(ip: str, family=socket.AF_INET):
         "169.254.169.254", # link-local / cloud metadata
         "0.0.0.0",         # unspecified
         "224.0.0.1",       # multicast
+        "100.64.0.1",      # shared address space (RFC 6598)
+        "100.100.100.200", # Alibaba Cloud metadata
+        "198.18.0.1",      # benchmarking range
     ],
 )
 def test_rejects_disallowed_ipv4(monkeypatch, bad_ip):
@@ -43,6 +48,11 @@ def test_rejects_disallowed_ipv4(monkeypatch, bad_ip):
         "fe80::1",          # link-local
         "fc00::1",          # unique local (private)
         "::ffff:127.0.0.1", # IPv4-mapped loopback
+        "::ffff:100.100.100.200", # mapped shared address
+        "64:ff9b::6464:64c8",     # NAT64 form of 100.100.100.200
+        "2002:6464:64c8::1",      # 6to4 form of 100.100.100.200
+        "fd00:ec2::254",          # AWS IPv6 metadata
+        "ff02::1",                # multicast
     ],
 )
 def test_rejects_disallowed_ipv6(monkeypatch, bad_ip):
@@ -55,6 +65,13 @@ def test_allows_public_ip(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo(PUBLIC_IP))
     validated = resolve_and_validate("cisa.gov", 443)
     assert validated.ip == PUBLIC_IP
+
+
+def test_allows_public_ipv6(monkeypatch):
+    public_ipv6 = "2606:4700:4700::1111"
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo(public_ipv6, family=socket.AF_INET6))
+    validated = resolve_and_validate("cisa.gov", 443)
+    assert validated.ip == public_ipv6
 
 
 def test_dns_rebinding_is_blocked_by_pinning(monkeypatch):
@@ -92,6 +109,28 @@ def test_pin_dns_does_not_affect_other_hosts(monkeypatch):
     with pin_dns(validated):
         other = socket.getaddrinfo("blog.talosintelligence.com", 443)
         assert other[0][4][0] == "198.51.100.7"
+
+
+def test_pin_dns_is_safe_under_concurrency(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("10.0.0.1"))  # rebound answer
+    resolver = socket.getaddrinfo
+    failures = []
+
+    def worker(i):
+        host, ip = f"feed{i}.example.com", f"93.184.216.{i + 1}"
+        validated = ValidatedHost(hostname=host, port=443, ip=ip, family=socket.AF_INET)
+        with pin_dns(validated):
+            time.sleep(0.001)
+            if socket.getaddrinfo(host, 443)[0][4][0] != ip:
+                failures.append(host)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(40)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert failures == []
+    assert socket.getaddrinfo is resolver
 
 
 @pytest.mark.parametrize("url", ["http://cisa.gov/feed.xml", "file:///etc/passwd", "ftp://cisa.gov/x"])

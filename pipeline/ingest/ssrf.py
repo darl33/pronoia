@@ -1,4 +1,4 @@
-"""SSRF mitigation: DNS resolution, private/link-local/metadata range rejection,
+"""SSRF mitigation: DNS resolution, rejection of every non-public address,
 and DNS pinning so the validated address is the one connected to (DESIGN.md §6).
 
 Why pinning, not just validation: docs/DECISIONS.md#ssrf
@@ -8,22 +8,46 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 ALLOWED_SCHEMES = {"https"}
 
+# RLock so a nested pin in the same thread can't deadlock.
+_PIN_LOCK = threading.RLock()
+
 
 class SSRFBlocked(Exception):
     pass
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """The IPv4 address an IPv6 address carries, if any (mapped, 6to4, Teredo, NAT64)."""
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if ip.teredo is not None:
+        return ip.teredo[1]  # client address, already de-obfuscated
+    if ip in _NAT64:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
 def _is_disallowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = _embedded_ipv4(ip)
+        if embedded is not None and _is_disallowed_ip(embedded):
+            return True
+    # Keep the explicit checks: is_global alone treats multicast as global.
     return (
-        ip.is_private
+        not ip.is_global
+        or ip.is_private
         or ip.is_loopback
         or ip.is_link_local
         or ip.is_reserved
@@ -73,17 +97,20 @@ def resolve_and_validate(hostname: str, port: int) -> ValidatedHost:
 def pin_dns(validated: ValidatedHost):
     """Force socket.getaddrinfo to answer `validated.hostname` with the single
     address that was already checked by resolve_and_validate, for the
-    duration of the request. Other hostnames resolve normally."""
-    real_getaddrinfo = socket.getaddrinfo
-    pinned_sockaddr = (validated.ip, validated.port)
+    duration of the request. Other hostnames resolve normally. Holds _PIN_LOCK
+    for the whole patch window, so pinned requests run one at a time; see
+    docs/DECISIONS.md#ssrf."""
+    with _PIN_LOCK:
+        real_getaddrinfo = socket.getaddrinfo
+        pinned_sockaddr = (validated.ip, validated.port)
 
-    def patched(host, port, family=0, type=0, proto=0, flags=0):
-        if host == validated.hostname and port == validated.port:
-            return [(validated.family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", pinned_sockaddr)]
-        return real_getaddrinfo(host, port, family, type, proto, flags)
+        def patched(host, port, family=0, type=0, proto=0, flags=0):
+            if host == validated.hostname and port == validated.port:
+                return [(validated.family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", pinned_sockaddr)]
+            return real_getaddrinfo(host, port, family, type, proto, flags)
 
-    socket.getaddrinfo = patched
-    try:
-        yield
-    finally:
-        socket.getaddrinfo = real_getaddrinfo
+        socket.getaddrinfo = patched
+        try:
+            yield
+        finally:
+            socket.getaddrinfo = real_getaddrinfo

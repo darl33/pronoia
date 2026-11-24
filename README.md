@@ -1,6 +1,44 @@
 # pronoia
 connecting CTI reporting to geopolitical events
 
+pronoia ingests open-source cyber threat intelligence, uses an LLM to extract
+structured threat data mapped to MITRE ATT&CK, and is designed to correlate
+reported nation-state activity with geopolitical events. It records attribution
+as reported, with its confidence level, and never asserts its own. The
+specification is [docs/DESIGN.md](docs/DESIGN.md); the reasons behind
+implementation choices are in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+## Status
+
+Built, in `pipeline/` (Python):
+
+- **Ingestion** from CISA, ACSC and Cisco Talos feeds, with SSRF, XXE and
+  decompression-bomb defences (DESIGN.md §6).
+- **LLM enrichment**: typed extraction of actors, ATT&CK techniques and targets,
+  with schema validation and guardrails (§5).
+- **Eval harness**: scores extraction against a hand-labelled gold set and a
+  non-LLM baseline (§7).
+
+Not built yet: the geopolitical-event correlation, the Rust API and the web
+frontend. `api/` is a placeholder crate until the API work starts.
+
+## Eval results
+
+Micro-averaged F1 for `claude-sonnet-5` against a non-LLM baseline:
+
+| Field | LLM F1 | Baseline F1 |
+|---|---|---|
+| ATT&CK techniques (parent) | **0.957** | 0.533 |
+| ATT&CK techniques (sub-technique) | 0.609 | 0.533 |
+| Actors | 1.000 | 1.000 |
+| Target countries | 1.000 | 0.857 |
+| Target sectors | 1.000 | 0.600 |
+
+This run scored only 2 labelled documents (11 gold techniques); the rest of the
+gold set is still placeholders. Treat it as a smoke test, not a benchmark. Full
+scorecard:
+[`pipeline/eval/scorecards/`](pipeline/eval/scorecards/primary--claude-sonnet-5--7988b4d8b99d.md).
+
 ## Configuration
 
 The only variable you need is `LLM_API_KEY`. The provider, base URL and model
